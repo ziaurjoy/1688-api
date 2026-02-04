@@ -62,6 +62,27 @@ def save_last_page(url: str, file_path="lastvisit.txt"):
 # Product Card Parser
 # ---------------------------
 
+
+async def parse_categories(page):
+
+    item_name = await page.locator("#productTitle h1").inner_text()
+    item_name = item_name.strip()
+
+    breadcrumbs = await page.locator(".breadcrumb a").all_inner_texts()
+
+    # Clean
+    breadcrumbs = [b.strip() for b in breadcrumbs if b.strip()]
+
+    category = breadcrumbs[1] if len(breadcrumbs) > 1 else ""
+    subcategory = breadcrumbs[2] if len(breadcrumbs) > 2 else ""
+
+    data = {
+        "category": category,
+        "sub_category": subcategory,
+        "item_name": item_name
+    }
+    return data
+
 async def parse_product_card(card):
     async def qs(selector, attr=None):
         el = await card.query_selector(selector)
@@ -91,7 +112,10 @@ async def parse_product_card(card):
         if overseas_price_el else None
     )
 
+
+
     return {
+
         "offer_id": offer_id,
         "title": await qs(".offer-title"),
         "url": href,
@@ -199,7 +223,8 @@ async def extract_products_from_page(page):
         for attempt in range(3):
             try:
                 await page.wait_for_selector("a.i18n-card-wrap", timeout=30000)
-                break
+                # break
+                continue
             except Exception as e:
                 print(f"Attempt {attempt + 1} failed to load selector for page {current_page}: {e}")
                 if attempt < 2:
@@ -214,24 +239,27 @@ async def extract_products_from_page(page):
         products = []
         for card in cards:
             product = await parse_product_card(card)
+            product.update(await parse_categories(page))
+            print('=============',product)
             if product:
-                products.append(product)
+                result = await db.products.insert_one(product)
+                # products.append(product)
 
         # stored_data = load_json(product_file_path)
 
-        record = {
-            # "category": category_name,
-            # "subcategory": sub_category_name,
-            # "item": item_name,
-            "page_url": page_url,
-            "page": current_page,
-            "products": products
-        }
+        # record = {
+        #     # "category": category_name,
+        #     # "subcategory": sub_category_name,
+        #     # "item": item_name,
+        #     "page_url": page_url,
+        #     "page": current_page,
+        #     "products": products
+        # }
 
-        data = jsonable_encoder(record)
+        # data = jsonable_encoder(record)
 
-        # Insert is async with Motor, so await the result and return the new id
-        result = await db.products.insert_one(data)
+        # # Insert is async with Motor, so await the result and return the new id
+        # result = await db.products.insert_one(data)
 
         # stored_data.append(record)
         # save_json(product_file_path, stored_data)
@@ -285,33 +313,60 @@ async def playwright_main(searching_key):
             # viewport={"width": 1280, "height": 720}
         )
 
-        # Load cookies
+        # Load cookies from file next to this module so relative paths work the same regardless of cwd
         try:
-            with open("cookie.json", "r", encoding="utf-8") as f:
+            cookie_file = os.path.join(os.path.dirname(__file__), "cookie.json")
+            with open(cookie_file, "r", encoding="utf-8") as f:
                 cookies = json.load(f)
 
             formatted = []
             for c in cookies:
+                # Playwright accepts either a `url` OR a `domain`+`path`. Using `url` is simpler and more reliable.
+                domain = c.get("domain")
+                path = c.get("path", "/") or "/"
+
                 cookie = {
-                    "name": c["name"],
-                    "value": c["value"],
-                    "domain": c["domain"],
-                    "path": c["path"],
+                    "name": c.get("name"),
+                    "value": c.get("value", ""),
+                    "path": path,
                     "secure": c.get("secure", False),
-                    "httpOnly": c.get("httpOnly", False)
+                    "httpOnly": c.get("httpOnly", False),
                 }
+
+                # Prefer building a full URL so Playwright will apply the cookie to navigations
+                if domain:
+                    # remove leading dot if present
+                    host = domain.lstrip('.')
+                    cookie["url"] = f"https://{host}{path}"
+                elif c.get("url"):
+                    cookie["url"] = c.get("url")
+
+                # expirationDate from some exports is in seconds since epoch
                 if "expirationDate" in c:
-                    cookie["expires"] = c["expirationDate"]
+                    try:
+                        cookie["expires"] = int(c["expirationDate"])
+                    except Exception:
+                        pass
+
                 if c.get("sameSite") == "no_restriction":
                     cookie["sameSite"] = "None"
                 elif "sameSite" in c:
-                    cookie["sameSite"] = c["sameSite"]
+                    cookie["sameSite"] = c.get("sameSite")
 
                 formatted.append(cookie)
 
-            await context.add_cookies(formatted)
-            print(f"Loaded {len(formatted)} cookies")
+            if formatted:
+                await context.add_cookies(formatted)
+                print(f"Loaded {len(formatted)} cookies")
 
+                # Debug: show the cookies currently in the context
+                current = await context.cookies()
+                print("Context cookies after load:", current)
+            else:
+                print("No cookies found to load")
+
+        except FileNotFoundError:
+            print(f"Cookie file not found: {cookie_file}")
         except Exception as e:
             print("Cookie load error:", e)
         print('=====')
