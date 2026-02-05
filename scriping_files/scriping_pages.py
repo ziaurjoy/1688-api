@@ -7,10 +7,21 @@ import random
 from urllib.parse import urlparse, parse_qs
 from playwright.async_api import async_playwright
 
+try:
+    from database import db
+except ModuleNotFoundError:
+    import os, sys
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    if root_dir not in sys.path:
+        sys.path.insert(0, root_dir)
+    from database import db
 
-# ---------------------------
-# JSON Utilities
-# ---------------------------
+from fastapi.encoders import jsonable_encoder
+
+
+
+state_file_path="scraping_state.json"
+
 
 def load_state(file_path="scraping_state.json"):
     default_state = {
@@ -25,6 +36,7 @@ def load_state(file_path="scraping_state.json"):
 
 def save_state(state, file_path="scraping_state.json"):
     save_json(file_path, state)
+
 
 def load_json(file_path: str, default=None):
     if default is None:
@@ -60,6 +72,28 @@ def save_last_page(url: str, file_path="lastvisit.txt"):
 # Product Card Parser
 # ---------------------------
 
+
+async def parse_categories(page):
+
+    item_name = await page.locator("#productTitle h1").inner_text()
+    item_name = item_name.strip()
+
+    breadcrumbs = await page.locator(".breadcrumb a").all_inner_texts()
+
+    # Clean
+    breadcrumbs = [b.strip() for b in breadcrumbs if b.strip()]
+
+    category = breadcrumbs[1] if len(breadcrumbs) > 1 else ""
+    subcategory = breadcrumbs[2] if len(breadcrumbs) > 2 else ""
+
+    data = {
+        "category": category,
+        "sub_category": subcategory,
+        "item_name": item_name
+    }
+    return data
+
+
 async def parse_product_card(card):
     async def qs(selector, attr=None):
         el = await card.query_selector(selector)
@@ -90,6 +124,7 @@ async def parse_product_card(card):
     )
 
     return {
+
         "offer_id": offer_id,
         "title": await qs(".offer-title"),
         "url": href,
@@ -116,7 +151,6 @@ async def parse_product_card(card):
 # ...existing code...
 
 async def click_next_page(page):
-    print('========')
     next_btn = page.locator(".fui-arrow.fui-next")
 
     # Update state
@@ -180,68 +214,53 @@ async def click_next_page(page):
         print(f"Error clicking next page: {e}")
         return {"has_next": False, "page": page}
 
-# ...existing code...
 
-# ---------------------------
-# Page Scraper
-# ---------------------------
+async def extract_products_from_page(page, browser, context):
 
-
-# ...existing code...
-
-async def extract_products_from_page(
-    page,
-    category_name,
-    sub_category_name,
-    item_name,
-    product_file_path="collected_product_data.json",
-    state_file_path="scraping_state.json"
-):
     state = load_state(state_file_path)
     current_page = state["current_page"]
     max_pages = state["max_pages"]
 
     while current_page <= max_pages:
-        print(f"Scraping page {current_page}")
 
         state = load_state(state_file_path)
         current_page = state["current_page"]
         max_pages = state["max_pages"]
-
         for attempt in range(3):
             try:
                 await page.wait_for_selector("a.i18n-card-wrap", timeout=30000)
-                break
+                # break
+                continue
             except Exception as e:
                 print(f"Attempt {attempt + 1} failed to load selector for page {current_page}: {e}")
                 if attempt < 2:
                     await asyncio.sleep(5 + random.randint(5, 10))
                 else:
                     raise e
-        page_url = page.url
 
         cards = await page.query_selector_all("a.i18n-card-wrap")
-        print("Cards found:", len(cards))
 
-        products = []
         for card in cards:
             product = await parse_product_card(card)
+            product_id = product.get("offer_id")
+
+            query = {
+                "$or": [
+                    {"offer_id": {"$regex": product_id, "$options": "i"}},
+                ]
+            }
+
+            total = await db.products.count_documents(query)
+            if total > 0:
+                print(f"Product with offer_id {product_id} already exists. Skipping.")
+                continue
+
+            product_name = await page.locator("#alisearch-input").input_value()
+            product.update({"product_name": product_name})
+            # product.update(await parse_categories(page))
+            data = jsonable_encoder(product)
             if product:
-                products.append(product)
-
-        stored_data = load_json(product_file_path)
-
-        record = {
-            "category": category_name,
-            "subcategory": sub_category_name,
-            "item": item_name,
-            "page_url": page_url,
-            "page": current_page,
-            "products": products
-        }
-
-        stored_data.append(record)
-        save_json(product_file_path, stored_data)
+                db.products.insert_one(data)
 
         # Add random delay to mimic human behavior
         await asyncio.sleep(random.randint(2, 5))
@@ -258,153 +277,133 @@ async def extract_products_from_page(
         state = load_state(state_file_path)
         current_page = state["current_page"]
 
-
     if current_page > max_pages:
         print("Reached max page limit")
+        await context.close()
+        await browser.close()
 
-# ...existing code...
 
-# ---------------------------
-# Item Processor
-# ---------------------------
 
-# ...existing code...
-
-async def process_item(page, category_name, subcategory_name, item, is_link, state_file_path="scraping_state.json"):
-    url = item["link"] if is_link is None else is_link
+async def process_item(page, searching_key, browser, context):
+    url = f"https://s.1688.com/selloffer/offer_search.htm?charset=utf8&keywords={searching_key}"
     for attempt in range(3):
         try:
             await page.goto(url, timeout=60000)
             break
         except Exception as e:
-            print(f"Attempt {attempt + 1} failed for {item['name']}: {e}")
+            print(f"Attempt {attempt + 1} failed for {searching_key}: {e}")
+            # await context.close()
+            # await browser.close()
             if attempt < 2:
                 await asyncio.sleep(10 + random.randint(5, 15))
             else:
                 raise e
-    await extract_products_from_page(
-        page,
-        category_name,
-        subcategory_name,
-        item["name"],
-        state_file_path=state_file_path
-    )
+    try:
+        await extract_products_from_page(page, browser, context)
 
-# ...existing code...
+    except Exception as e:
+        print(f"Error processing item {searching_key}: {e}")
+        await context.close()
+        await browser.close()
 
-# ---------------------------
-# Playwright Main
-# ---------------------------
 
-async def playwright_main():
-    init_product_file()
 
+
+async def playwright_main(searching_key):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=False)
         context = await browser.new_context(
             ignore_https_errors=True,
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            # viewport={"width": 1280, "height": 720}
         )
 
-        # Load cookies
+        # Load cookies if available
         try:
-            with open("cookie.json", "r", encoding="utf-8") as f:
+            # with open("cookie.json", "r", encoding="utf-8") as f:
+            #     cookies = json.load(f)
+            cookie_file = os.path.join(os.path.dirname(__file__), "cookie.json")
+            # if os.path.exists(cookie_file):
+            with open(cookie_file, "r", encoding="utf-8") as f:
                 cookies = json.load(f)
 
             formatted = []
             for c in cookies:
-                cookie = {
-                    "name": c["name"],
-                    "value": c["value"],
-                    "domain": c["domain"],
-                    "path": c["path"],
-                    "secure": c.get("secure", False),
-                    "httpOnly": c.get("httpOnly", False)
-                }
-                if "expirationDate" in c:
-                    cookie["expires"] = c["expirationDate"]
-                if c.get("sameSite") == "no_restriction":
-                    cookie["sameSite"] = "None"
-                elif "sameSite" in c:
-                    cookie["sameSite"] = c["sameSite"]
+                try:
+                    cookie = {
+                        "name": c.get("name"),
+                        "value": c.get("value", ""),
+                        "domain": c.get("domain"),
+                        "path": c.get("path", "/"),
+                        "secure": bool(c.get("secure", False)),
+                        "httpOnly": bool(c.get("httpOnly", False))
+                    }
 
-                formatted.append(cookie)
+                    # Normalize expiration to integer seconds if provided
+                    if "expirationDate" in c and c.get("expirationDate") is not None:
+                        cookie["expires"] = int(c["expirationDate"])
 
-            await context.add_cookies(formatted)
-            print(f"Loaded {len(formatted)} cookies")
+                    # Normalize sameSite values. Accept common variants and skip None.
+                    same = c.get("sameSite")
+                    if isinstance(same, str):
+                        s = same.lower()
+                        if s in ("no_restriction", "none"):
+                            cookie["sameSite"] = "None"
+                        elif s == "lax":
+                            cookie["sameSite"] = "Lax"
+                        elif s == "strict":
+                            cookie["sameSite"] = "Strict"
+
+                    formatted.append(cookie)
+                except Exception as e:
+                    print(f"Skipping invalid cookie {c.get('name')}: {e}")
+
+            # Try to add cookies in bulk; if that fails, add them one-by-one to isolate bad cookies
+            try:
+                await context.add_cookies(formatted)
+                print(f"Loaded {len(formatted)} cookies")
+            except Exception as e:
+                print(f"Bulk add_cookies failed: {e}. Trying individually...")
+                added = 0
+                for c in formatted:
+                    try:
+                        await context.add_cookies([c])
+                        added += 1
+                    except Exception as e2:
+                        print(f"Skipping cookie {c.get('name')} due to error: {e2}")
+                print(f"Loaded {added} cookies (individual add)")
 
         except Exception as e:
-            print("Cookie load error:", e)
+            print(f"Cookie load error: {e}")
 
         page = await context.new_page()
 
-        category_name = "女装"
-        subcategory_name = "大码女装"
-        items = [
+        await process_item(page, searching_key, browser, context)
 
-            {
-                "name": "大码针织衫",
-                "link": "https://s.1688.com/selloffer/offer_search.htm?charset=utf8&keywords=大码针织衫"
-            }
-        ]
+        # Collect details for each product
+        success_count = 0
+        failed_count = 0
 
-        # _link = 'https://s.1688.com/selloffer/offer_search.htm?charset=utf8&keywords=%E6%B1%89%E6%9C%8D%E5%A5%97%E8%A3%85&beginPage=7'
+        # Save cookies
+        try:
+            cookies = await context.cookies()
+            with open("cookie.json", "w", encoding="utf-8") as f:
+                json.dump(cookies, f, indent=4, ensure_ascii=False)
+            print(f"\nUpdated cookies saved")
+        except Exception as e:
+            print(f"Error saving cookies: {e}")
 
-        _link = None
-        for item in items:
-            try:
-                # await process_item(page, category_name, subcategory_name, item, _link)
-                await process_item(page, category_name, subcategory_name, item, _link, "scraping_state.json")
-            except Exception as e:
-                print(f"Error processing item {item['name']}: {e}")
-                # Continue to next item
-                continue
+        await browser.close()
 
-            state_file_path = "scraping_state.json"
-            state = load_state(state_file_path)
-            state["current_page"] = 1
-            state["current_url"] = ""
-            state["max_pages"] = 5
-            save_state(state, state_file_path)
-
-            # Delay between items
-            await asyncio.sleep(random.randint(5, 10))
+        print(f"\n{'='*50}")
+        print(f"Collection Complete!")
+        print(f"Successfully collected: {success_count}")
+        print(f"Failed: {failed_count}")
+        print(f"Total: {success_count + failed_count}")
+        print(f"Output saved to: product_details.json")
+        print(f"{'='*50}")
 
 
 
-
-        print("Scraping finished. Browser will remain open.")
-
-        # Save cookies to cookie.json
-        cookies = await context.cookies()
-        with open("cookie.json", "w", encoding="utf-8") as f:
-            json.dump(cookies, f, indent=4, ensure_ascii=False)
-
-
-        await asyncio.Event().wait()
-
-
-        # try:
-        #     # wait max 10 seconds
-        #     await asyncio.wait_for(asyncio.Event().wait(), timeout=10)
-
-        # except asyncio.TimeoutError:
-        #     print("Timeout reached (10s). Closing browser...")
-        #     await browser.close()
-
-        # except Exception as e:
-        #     print(f"Unexpected error: {e}. Closing browser...")
-        #     await browser.close()
-
-        # print("All work done. Closing browser.")
-
-
-# ---------------------------
-# Entry Point
-# ---------------------------
-
-async def main():
-    await playwright_main()
-
-asyncio.run(main())
+# if __name__ == "__main__":
+#     init_product_file()
+#     asyncio.run(playwright_main("laptop"))
