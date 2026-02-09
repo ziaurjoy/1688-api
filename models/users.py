@@ -44,6 +44,9 @@ class OTP(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
+class SendOTPRequest(BaseModel):
+    email: EmailStr
+
 
 
 class APICredential(BaseModel):
@@ -51,5 +54,16 @@ class APICredential(BaseModel):
     app_key: str
     secret_key: str
     status: CredentialStatus = CredentialStatus.active
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+
+class APIHit(BaseModel):
+    user : User
+    endpoint: str
+    method: str
+    date: str
+    hits: int = 0
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

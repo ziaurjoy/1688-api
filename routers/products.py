@@ -1,13 +1,16 @@
+import hashlib
 from math import ceil
 
 from fastapi.encoders import jsonable_encoder
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Header, Request
 
 from database import db
 from models.products import Product
 
 from scriping_files.scriping_pages import playwright_main
 from scriping_files.details_scriping_page import playwright_main_details
+from models.users import User
+from utils import users as users_utils
 
 
 router = APIRouter(prefix="/products", tags=["Products"])
@@ -26,10 +29,15 @@ async def create_product(product: Product):
 
 @router.get("/")
 async def list_products(
+    request: Request,
     searching: str | None = Query(None, description="Search keyword"),
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
+
 ):
+
+    user = await users_utils.fiend_credentials(request)
+
     skip = (page - 1) * limit
 
     query = {}
@@ -43,6 +51,11 @@ async def list_products(
         }
 
     total = await db.products.count_documents(query)
+
+
+
+    await users_utils.count_api_hit('/products', user)
+
 
     if total == 0 and searching:
         try:

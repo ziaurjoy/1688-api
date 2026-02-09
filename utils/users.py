@@ -1,9 +1,11 @@
 
 import os
 import random
+import requests
 import secrets
 import hashlib
 from typing import Annotated
+from fastapi.encoders import jsonable_encoder
 from datetime import datetime, timedelta, timezone, timedelta
 
 import jwt
@@ -105,3 +107,57 @@ async def get_current_active_user(current_user: Annotated["users_models.User", D
     return current_user
 
 
+
+async def fiend_credentials(requests):
+
+    headers = dict(requests.headers)
+    print('===headers', headers)
+    headers_dict = dict(headers)
+
+    app_key = headers_dict.get("app-key")
+    secret_key = headers_dict.get("secret-key")
+
+    if not app_key or not secret_key:
+        raise HTTPException(401, "Missing API credentials")
+
+    app_key = app_key.strip()
+    secret_key = secret_key.strip()
+
+    credential = await db.APICredential.find_one({
+        "app_key": app_key,
+        "secret_key_hash": secret_key
+    })
+
+    if not credential:
+        raise HTTPException(401, "Invalid API credentials")
+
+    user = credential.get('user')
+
+    return user
+
+
+async def count_api_hit(endpoint: str, user):
+    # Find existing record
+    count_obj = await db.APIHit.find_one({"endpoint": endpoint, "user": user})
+
+    if not count_obj:
+        # Create new record
+        _count_obj = {
+            "endpoint": endpoint,
+            "user": user,
+            "total_hits": 1,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        }
+        data = await db.APIHit.insert_one(_count_obj)
+        return data
+
+    # Increment hits
+    data = await db.APIHit.update_one(
+        {"endpoint": endpoint, "user": user},
+        {
+            "$inc": {"total_hits": 1},  # increment by 1
+            "$set": {"updated_at": datetime.utcnow()}
+        }
+    )
+    return data

@@ -10,20 +10,18 @@ from database import db
 from utils import users as user_utils
 from models import users as users_models
 
-from dotenv import load_dotenv
 from utils.users import generate_app_key, generate_secret_key, hash_secret
-from models.users import CredentialStatus
+
+from dotenv import load_dotenv
 load_dotenv()
-
-
-router = APIRouter(prefix="/users", tags=["Users"])
-
 
 # openssl rand -hex 32
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
 
+
+router = APIRouter(prefix="/users", tags=["Users"])
 
 
 @router.post("/registration")
@@ -81,35 +79,78 @@ async def registration(user: users_models.User):
 
 @router.post("/otp-verify")
 async def otp_verify(otp: users_models.OTP):
-    print(otp)
+
     find_otp = await db.OTP.find_one({
         "email": otp.email,
-        "otp": otp.otp
+        "otp": str(otp.otp)
     })
-    print('fiend', find_otp)
+
     if not find_otp:
         raise HTTPException(
             status_code=404,
             detail="Invalid OTP"
         )
-
+    expire_time = datetime.fromisoformat(find_otp["expire"])
     # Optional: Expiry Check
-    if find_otp.get("expire") and find_otp["expire"] < datetime.utcnow():
+    if find_otp.get("expire") and expire_time < datetime.utcnow():
         raise HTTPException(
             status_code=400,
             detail="OTP expired"
         )
 
-    # # ✅ Delete OTP after successful verification
-    # await db.OTP.delete_one({
-    #     "_id": find_otp["_id"]
-    # })
+
+    # Replace the entire document
+    await db.OTP.update_one(
+        {
+            "email": otp.email,
+            "otp": str(otp.otp)
+        },
+        {
+            "$set": {
+                "verify": True,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+
+    await db.User.update_one(
+        {"email": otp.email},
+        {
+            "$set": {
+                "disabled": False,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
 
     return {"message": "OTP verified successfully"}
 
 
 
+@router.post("/send-otp")
+async def send_otp(email: users_models.SendOTPRequest):
+    user = await db.User.find_one({'email': email.email})
 
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    _otp_data = {
+        "email": email.email,   # ✅ fixed
+        "otp": user_utils.generate_otp(),
+        "verify": False,
+        "expire": user_utils.expire_token(),
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    }
+    otp_data = jsonable_encoder(_otp_data)
+
+    # ✅ Insert OTP
+    await db.OTP.insert_one(otp_data)
+
+    return {"message": "OTP sent successfully"}
 
 
 
@@ -188,4 +229,27 @@ async def secret_api_key(
         "app_key": app_key,
         "secret_key": secret_key
     }
+
+
+
+@router.get("/get-secret/")
+async def get_secret_api_key(
+    current_user: Annotated[
+        users_models.User,
+        Depends(user_utils.get_current_active_user)
+    ]
+):
+    is_secret = await db.APICredential.find_one({"user": current_user})
+
+    if not is_secret:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    return {
+        "app_key": is_secret.get('app_key'),
+        "secret_key": is_secret.get('secret_key_hash')
+    }
+
 
