@@ -17,6 +17,7 @@ except ModuleNotFoundError:
     from database import db
 
 from fastapi.encoders import jsonable_encoder
+from scriping_files.details_scriping_page import save_image_from_url
 
 
 
@@ -128,7 +129,7 @@ async def parse_product_card(card):
         "offer_id": offer_id,
         "title": await qs(".offer-title"),
         "url": href,
-        "image": await qs("img.main-img", attr="src"),
+        "image": save_image_from_url(await qs("img.main-img", attr="src"), 'product_images'),
         "price": {
             "currency": currency,
             "amount": amount,

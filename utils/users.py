@@ -111,7 +111,6 @@ async def get_current_active_user(current_user: Annotated["users_models.User", D
 async def fiend_credentials(requests):
 
     headers = dict(requests.headers)
-    print('===headers', headers)
     headers_dict = dict(headers)
 
     app_key = headers_dict.get("app-key")

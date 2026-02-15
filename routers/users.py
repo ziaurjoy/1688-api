@@ -168,7 +168,17 @@ async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm,
     access_token = user_utils.create_access_token(
         data={"sub": user['email']}, expires_delta=access_token_expires
     )
-    return users_models.Token(access_token=access_token, token_type="bearer")
+
+    api_credential = await db.APICredential.find_one({'user': user})
+
+    del user["password"]
+
+
+    if api_credential:
+        return users_models.Token(access_token=access_token, user=user, api_credential=api_credential, token_type="bearer")
+
+    return users_models.Token(access_token=access_token, user=user, token_type="bearer")
+
 
 
 @router.get("/me/")
