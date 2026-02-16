@@ -201,25 +201,24 @@ async def secret_api_key(
         secret_key = generate_secret_key()
 
         doc = {
-            "user": current_user,   # ✅ Correct
+            "user": current_user,
             "app_key": app_key,
             "secret_key_hash": hash_secret(secret_key),
             "status": "active",
             "updated_at": datetime.utcnow()
         }
 
-        # Replace the entire document
         await db.APICredential.replace_one(
-            {"user": current_user},  # Filter by email
-            is_secret,                      # Full new document
-            upsert=True                      # Insert if not exists
+            {"user": current_user},
+            doc,   # ✅ FIXED
+            upsert=True
         )
-
 
         return {
             "app_key": app_key,
             "secret_key": secret_key
         }
+
 
     app_key = generate_app_key()
     secret_key = generate_secret_key()
