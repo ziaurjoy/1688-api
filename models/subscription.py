@@ -44,6 +44,7 @@ class SubscriptionPackage(BaseModel):
     is_active: bool = False
 
     visibility: VisibilityEnum = VisibilityEnum.PUBLIC
+    stripe_id: str
 
 
 class SubscriptionFeatures(BaseModel):

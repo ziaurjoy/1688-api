@@ -10,6 +10,8 @@ from fastapi import FastAPI
 from routers.products import router as product_router
 from routers.users import router as users_router
 from routers.subscription import router as subscription_router
+from routers.payment import router as payment_router
+from routers.invoice import router as invoice_router
 app = FastAPI()
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +35,8 @@ app.add_middleware(
 app.include_router(product_router)
 app.include_router(users_router)
 app.include_router(subscription_router)
+app.include_router(payment_router)
+app.include_router(invoice_router)
 
 # @app.get("/")
 # async def root():
