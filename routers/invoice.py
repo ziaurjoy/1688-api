@@ -4,10 +4,10 @@
 from bson import ObjectId
 from datetime import datetime
 import fastapi.encoders
+import math
 from typing import Annotated
-from fastapi.encoders import jsonable_encoder
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 
 from database import db
 from models.invoice import SubscribeInvoiceRequest
@@ -72,6 +72,59 @@ async def create_invoice(
 
     return created_invoice
 
+
+
+@router.get("/subscription/read/")
+async def get_user_invoices(
+    current_user: Annotated[dict, Depends(user_utils.get_current_active_user)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 10,
+):
+    try:
+        # Safely get the user_id
+        user_id = ObjectId(current_user["_id"])
+    except Exception:
+        raise HTTPException(status_code=500, detail="Invalid User ID")
+
+    skip = (page - 1) * limit
+    query = {"user_id": user_id}
+
+    # 1. Get total count
+    total = await db.subscription_invoices.count_documents(query)
+
+    # 2. Fetch documents
+    cursor = db.subscription_invoices.find(query).sort("_id", -1).skip(skip).limit(limit)
+
+    invoices = []
+    async for doc in cursor:
+        # --- THE FIX STARTS HERE ---
+        # Convert the main ID
+        doc["id"] = str(doc.pop("_id"))
+
+        package_id = doc.get("package_id")
+        if package_id:
+            package_data = await db.subscription_package.find_one({"_id": ObjectId(package_id)})
+            if package_data:
+                # Convert package ObjectIds to strings
+                package_data["_id"] = str(package_data["_id"])
+                # Append the package object to the invoice document
+                doc["package"] = package_data
+
+        # Convert any other ObjectIds found in the document keys
+        for key, value in doc.items():
+            if isinstance(value, ObjectId):
+                doc[key] = str(value)
+        # --- THE FIX ENDS HERE ---
+
+        invoices.append(doc)
+
+    return {
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "total_pages": math.ceil(total / limit) if limit > 0 else 0,
+        "results": invoices,
+    }
 
 
 @router.get("/user/features/")

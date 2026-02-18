@@ -15,6 +15,22 @@ class PaymentStatus(str):
 class SubscribePaymentRequest(BaseModel):
     invoice_id: str
 
+class StripeSubscribePaymentRequest(BaseModel):
+    package_id: str
+    user_id: str = None
+    amount: Decimal
+    currency: str = "USD"
+    discounts: Optional[Decimal] = None
+
+    payment_method: Optional[str] = None
+    transaction_id: Optional[str] = None
+
+    status: str = PaymentStatus.PENDING
+
+    # gateway_response: Optional[dict] = None
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
 
 class PackageSubscribePayment(BaseModel):
     id: Optional[str] = Field(alias="_id")
@@ -31,6 +47,6 @@ class PackageSubscribePayment(BaseModel):
 
     status: str = PaymentStatus.PENDING
 
-    gateway_response: Optional[dict] = None
+    # gateway_response: Optional[dict] = None
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
