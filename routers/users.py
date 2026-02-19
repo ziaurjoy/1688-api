@@ -1,3 +1,4 @@
+from bson import ObjectId
 import os
 from typing import Annotated
 from datetime import datetime, timedelta
@@ -262,3 +263,63 @@ async def get_secret_api_key(
     }
 
 
+
+@router.get("/api-uses/")
+async def api_uses(
+    current_user: Annotated[
+        users_models.User,
+        Depends(user_utils.get_current_active_user)
+    ]
+):
+    try:
+        # Safely get the user_id
+        user_id = ObjectId(current_user["_id"])
+    except Exception:
+        raise HTTPException(status_code=500, detail="Invalid User ID")
+
+    query = db.api_hits.find({"user_id": user_id})
+
+    data = []
+    async for item in query:
+        item["id"] = str(item.pop("_id"))
+        item["user_id"] = str(item["user_id"])
+
+        for key, value in item.items():
+            if isinstance(value, ObjectId):
+                item[key] = str(value)
+
+        data.append(item)
+
+    return { "data": data }
+
+# @router.get("/api-uses/")
+# async def api_uses(
+#     current_user: Annotated[
+#         users_models.User,
+#         Depends(user_utils.get_current_active_user)
+#     ]
+# ):
+#     # Ensure we have a string ID for the query
+#     # If current_user is a Pydantic model, use current_user.id
+#     user_id_str = str(current_user["_id"])
+
+#     cursor = db.api_hits.find({"user_id": bson.ObjectId(user_id_str)})
+#     hits = await cursor.to_list(length=100)
+
+#     # The loop that prevents the "builtin_function_or_method" error
+#     # By manually creating a clean list of dicts
+#     sanitized_hits = []
+#     for hit in hits:
+#         clean_hit = {
+#             "id": str(hit["_id"]),
+#             "user_id": str(hit["user_id"]),
+#             # Add other fields explicitly or use a dict comprehension
+#             "endpoint": hit.get("endpoint"),
+#             "timestamp": hit.get("timestamp")
+#         }
+#         sanitized_hits.append(clean_hit)
+
+#     return {
+#         "user_id": user_id_str,
+#         "hits": sanitized_hits
+#     }

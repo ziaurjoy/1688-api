@@ -137,23 +137,23 @@ async def fiend_credentials(requests):
 
 async def count_api_hit(endpoint: str, user):
     # Find existing record
-    count_obj = await db.APIHit.find_one({"endpoint": endpoint, "user": user})
+    count_obj = await db.api_hits.find_one({"endpoint": endpoint, "user_id": user['_id']})
 
     if not count_obj:
         # Create new record
         _count_obj = {
             "endpoint": endpoint,
-            "user": user,
+            "user_id": user['_id'],
             "total_hits": 1,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
-        data = await db.APIHit.insert_one(_count_obj)
+        data = await db.api_hits.insert_one(_count_obj)
         return data
 
     # Increment hits
-    data = await db.APIHit.update_one(
-        {"endpoint": endpoint, "user": user},
+    data = await db.api_hits.update_one(
+        {"endpoint": endpoint, "user_id": user['_id']},
         {
             "$inc": {"total_hits": 1},  # increment by 1
             "$set": {"updated_at": datetime.utcnow()}
