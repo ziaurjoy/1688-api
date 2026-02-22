@@ -184,3 +184,61 @@ async def get_packages_with_features():
         })
 
     return result
+
+
+
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
+from weasyprint import HTML
+from io import BytesIO
+from datetime import datetime
+import jinja2
+
+
+# app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+templates = Jinja2Templates(directory="templates")
+
+
+
+
+@router.get("/generate-invoice-pdf/{invoice_id}")
+async def generate_invoice_pdf(
+    invoice_id: str,
+    current_user: Annotated[
+        users_models.User,
+        Depends(user_utils.get_current_active_user)
+    ],
+):
+    try:
+        user_id = ObjectId(current_user["_id"])
+        invoice = await db.subscription_invoices.find_one(
+            {"_id": ObjectId(invoice_id), "user_id": user_id}
+        )
+        user = await db.User.find_one({"_id": user_id})
+        package_data = await db.subscription_package.find_one({"_id": ObjectId(invoice["package_id"])})
+
+        html_content = templates.get_template("invoice.html").render(
+            invoice=invoice,
+            user=user,
+            package_data=package_data
+        )
+
+        pdf_bytes = HTML(string=html_content).write_pdf()
+
+        filename = f"invoice-{invoice['invoice_number']}.pdf"
+
+        return StreamingResponse(
+            BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")

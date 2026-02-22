@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Invoice #{{invoice_number}}</title>
+		<style>
+			body {
+				font-family: 'Helvetica Neue', Arial, sans-serif;
+				margin: 0;
+				padding: 0;
+				color: #333;
+				background-color: #f9fafb;
+				font-size: 15px;
+				line-height: 1.5;
+			}
+			.container {
+				max-width: 800px;
+				margin: 40px auto;
+				background: white;
+				border-radius: 8px;
+				box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+				overflow: hidden;
+			}
+			.header {
+				background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+				color: white;
+				padding: 40px 50px 30px;
+			}
+			.header h1 {
+				margin: 0;
+				font-size: 28px;
+				font-weight: 600;
+			}
+			.invoice-meta {
+				margin-top: 20px;
+				font-size: 15px;
+				opacity: 0.9;
+			}
+			.content {
+				padding: 40px 50px;
+			}
+			.party {
+				display: flex;
+				justify-content: space-between;
+				margin-bottom: 50px;
+				flex-wrap: wrap;
+				gap: 30px;
+			}
+			.party-block h3 {
+				margin: 0 0 12px;
+				font-size: 17px;
+				color: #4f46e5;
+				font-weight: 600;
+			}
+			.party-block p {
+				margin: 6px 0;
+				color: #555;
+			}
+			table {
+				width: 100%;
+				border-collapse: collapse;
+				margin: 30px 0 40px;
+			}
+			thead {
+				background: #f3f4f6;
+			}
+			th,
+			td {
+				padding: 14px 12px;
+				text-align: left;
+				border-bottom: 1px solid #e5e7eb;
+			}
+			th {
+				font-weight: 600;
+				color: #374151;
+				text-transform: uppercase;
+				font-size: 13px;
+				letter-spacing: 0.5px;
+			}
+			.text-right {
+				text-align: right;
+			}
+			.amount {
+				font-weight: 600;
+			}
+			.summary {
+				width: 380px;
+				margin-left: auto;
+				background: #f8fafc;
+				padding: 24px;
+				border-radius: 8px;
+				border: 1px solid #e5e7eb;
+			}
+			.summary-row {
+				display: flex;
+				justify-content: space-between;
+				margin: 12px 0;
+			}
+			.summary-row.total {
+				font-size: 18px;
+				font-weight: 700;
+				padding-top: 16px;
+				margin-top: 16px;
+				border-top: 2px solid #d1d5db;
+				color: #1f2937;
+			}
+			.status-badge {
+				display: inline-block;
+				padding: 6px 14px;
+				border-radius: 20px;
+				font-size: 13px;
+				font-weight: 600;
+				background: #d1fae5;
+				color: #065f46;
+				margin-top: 8px;
+			}
+			.status-badge.paid {
+				background: #d1fae5;
+				color: #065f46;
+			}
+			.footer {
+				background: #f3f4f6;
+				padding: 24px 50px;
+				text-align: center;
+				color: #6b7280;
+				font-size: 13px;
+				border-top: 1px solid #e5e7eb;
+			}
+			@media print {
+				body {
+					background: white;
+				}
+				.container {
+					box-shadow: none;
+					margin: 0;
+					border-radius: 0;
+				}
+				.header {
+					padding-top: 20px;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<div class="header">
+				<h1>Invoice</h1>
+				<div class="invoice-meta">
+					Invoice# <strong> {{invoice.invoice_number}}</strong><br />
+					{{ invoice.created_at.strftime("%B %d, %Y %I:%M %p") }}<br />
+					<!-- Due: March 18, 2026 (if you want to show due date) -->
+				</div>
+			</div>
+
+			<div class="content">
+				<div class="party">
+					<div class="party-block">
+						<h3>From</h3>
+						<p><strong>Your Company Name</strong></p>
+						<p>
+							hello@yourcompany.com<br />
+							+880 1234-567890<br />
+							Dhaka, Bangladesh
+						</p>
+					</div>
+
+					<div class="party-block">
+						<h3>Bill To</h3>
+						<p><strong>Customer / User ID:</strong> {{user.full_name}}</p>
+						<!-- If you have customer name/email in another collection, put it here -->
+						<p><em>{{package_data.title}}</em></p>
+					</div>
+				</div>
+
+				<table>
+					<thead>
+						<tr>
+							<th>Description</th>
+							<th style="width: 120px">Validity</th>
+							<th style="width: 100px" class="text-right">Price</th>
+							<th style="width: 100px" class="text-right">Discount</th>
+							<th style="width: 120px" class="text-right">Total</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr>
+							<td>
+								<strong>{{package_data.title}}</strong><br />
+								<span style="color: #6b7280">Advanced features for growing businesses</span>
+							</td>
+							<td>30 days</td>
+							<td class="text-right amount">${{invoice.price}}</td>
+							<td class="text-right">${{invoice.discount}}</td>
+							<td class="text-right amount">${{invoice.total}}</td>
+						</tr>
+					</tbody>
+				</table>
+
+				<div class="summary">
+					<div class="summary-row">
+						<div>Subtotal</div>
+						<div>${{invoice.price}}</div>
+					</div>
+					<div class="summary-row">
+						<div>Discount</div>
+						<div>${{invoice.discount}}</div>
+					</div>
+					<div class="summary-row total">
+						<div>Total</div>
+						<div>${{invoice.total}} {{invoice.currency}}</div>
+					</div>
+					<div class="summary-row" style="margin-top: 20px">
+						<div>Status</div>
+						<div><span class="status-badge paid">{{invoice.status | upper}}</span></div>
+					</div>
+				</div>
+			</div>
+
+			<div class="footer">Thank you for your subscription • Your Company Name • hello@yourcompany.com</div>
+		</div>
+	</body>
+</html>
