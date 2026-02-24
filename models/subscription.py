@@ -45,6 +45,8 @@ class SubscriptionPackage(BaseModel):
 
     visibility: VisibilityEnum = VisibilityEnum.PUBLIC
     stripe_id: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class SubscriptionFeatures(BaseModel):

@@ -38,6 +38,26 @@ app.include_router(subscription_router)
 app.include_router(payment_router)
 app.include_router(invoice_router)
 
+
+from fastapi import FastAPI
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from fastapi_mongo_admin import mount_admin_app
+from database import db
+
+async def get_database() -> AsyncIOMotorDatabase:
+    """Get database instance."""
+    return db
+
+mount_admin_app(
+    app,
+    get_database,
+    router_prefix="/admin",
+    ui_mount_path="/admin-ui"
+
+)
+
+
+
 # @app.get("/")
 # async def root():
 #     return {"message": "Hello World"}
