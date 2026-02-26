@@ -1,19 +1,42 @@
 from enum import Enum
 from datetime import datetime
+from bson import ObjectId
 from pydantic import BaseModel, EmailStr, Field
+from utils.object_id import PyObjectId
 
 class User(BaseModel):
     email: str | None = None
-    full_name: str | None = None
+    # full_name: str | None = None
     disabled: bool = True
     password: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-class ReadOnlyUser(BaseModel):
-    email: str | None = None
+class UserProfile(BaseModel):
+    # user: PyObjectId = Field(...)
     full_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    profile_picture: str | None = None
+    status: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+class ReadOnlyUser(BaseModel):
+    profile: UserProfile | None = None
+    email: str | None = None
+    # full_name: str | None = None
     disabled: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+class UserProfile(BaseModel):
+    # user: PyObjectId = Field(...)
+    full_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    profile_picture: str | None = None
+    status: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -21,7 +44,6 @@ class CredentialStatus(str, Enum):
     active = "active"
     revoked = "revoked"
     expired = "expired"
-
 
 class APICredential(BaseModel):
     user : User
@@ -46,15 +68,10 @@ class Token(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-
 class TokenData(BaseModel):
     email: str | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-
-
-
-
 
 class UserInDB(User):
     hashed_password: str

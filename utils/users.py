@@ -34,8 +34,8 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
 
-def hash_secret(secret: str):
-    return hashlib.sha256(secret.encode()).hexdigest()
+# def hash_secret(secret: str):
+#     return hashlib.sha256(secret.encode()).hexdigest()
 
 def generate_otp():
     return str(random.randint(100000, 999999))
@@ -47,8 +47,16 @@ def expire_token(minutes=5):
 def generate_app_key():
     return "pub_" + secrets.token_urlsafe(16)
 
-def generate_secret_key():
-    return secrets.token_urlsafe(40)
+# def generate_secret_key():
+#     return secrets.token_urlsafe(40)
+
+def generate_secret_key(length: int = 48) -> str:
+    """Generates the 'nAZNaN...' string for the user."""
+    return secrets.token_urlsafe(length)
+
+def hash_secret(raw_secret: str) -> str:
+    """Generates the '01dc47...' string for the database."""
+    return hashlib.sha256(raw_secret.encode()).hexdigest()
 
 
 def verify_password(plain_password, hashed_password):
@@ -160,3 +168,7 @@ async def count_api_hit(endpoint: str, user):
         }
     )
     return data
+
+
+
+

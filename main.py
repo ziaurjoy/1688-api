@@ -4,11 +4,24 @@ import sys
 from fastapi import FastAPI, Response, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # --- 1. Project Path & Imports ---
 BASE_DIR = os.path.dirname(__file__)
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
+
+script_dir = os.path.dirname(__file__)
+upload_dir = os.path.join(script_dir, "")
+
+
+
+if not os.path.exists(upload_dir):
+    os.makedirs(upload_dir)
 
 from fastapi_mongo_admin import mount_admin_app
 from routers.products import router as product_router
@@ -41,12 +54,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-from dotenv import load_dotenv
-import os
-
-load_dotenv()
-
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 
 admin_secret_token = os.getenv("ADMIN_SECRET_TOKEN")
 

@@ -1,17 +1,23 @@
-from bson import ObjectId
+
 import os
+import shutil
+import secrets
+from pathlib import Path
+from bson import ObjectId
+from datetime import datetime, timedelta, timezone
+
 from typing import Annotated
-from datetime import datetime, timedelta
+
 
 from fastapi.encoders import jsonable_encoder
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi import APIRouter, HTTPException, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Request
 
 from database import db
 from utils import users as user_utils
 from models import users as users_models
 
-from utils.users import generate_app_key, generate_secret_key, hash_secret
+from utils.users import generate_secret_key, hash_secret
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -58,7 +64,16 @@ async def registration(user: users_models.User):
             "message": "Registration Successfully Done",
         }
 
-    await db.User.insert_one(data)
+    _user = await db.User.insert_one(data)
+
+    user_id = _user.inserted_id  # ✅ this is ObjectId
+
+    await db.user_profile.insert_one({
+        "user": user_id,  # no need to wrap again
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    })
+
 
     _otp_data = {
         "email": data["email"],   # ✅ fixed
@@ -183,61 +198,153 @@ async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm,
 
 
 @router.get("/me/")
-async def read_users_me(current_user: Annotated[users_models.User, Depends(user_utils.get_current_active_user)]) -> users_models.User:
+async def read_users_me(current_user: Annotated[users_models.ReadOnlyUser, Depends(user_utils.get_current_active_user)]) -> users_models.ReadOnlyUser:
+    user_profile = await db.user_profile.find_one({"user": ObjectId(current_user["_id"])})
+    current_user['profile'] = user_profile
     return current_user
 
-
-
-@router.get("/secret/")
-async def secret_api_key(
-    current_user: Annotated[
-        users_models.User,
-        Depends(user_utils.get_current_active_user)
-    ]
+@router.patch("/profile/edit/")
+async def update_profile(
+    profile: users_models.UserProfile,
+    current_user: Annotated[users_models.ReadOnlyUser, Depends(user_utils.get_current_active_user)]
 ):
-    is_secret = await db.APICredential.find_one({"user": current_user})
-
-    if is_secret:
-        app_key = generate_app_key()
-        secret_key = generate_secret_key()
-
-        doc = {
-            "user": current_user,
-            "app_key": app_key,
-            "secret_key_hash": hash_secret(secret_key),
-            "status": "active",
+    filter_users = await db.user_profile.find_one({"user": ObjectId(current_user["_id"])})
+    if not filter_users:
+        user_obj = {
+            "user": ObjectId(current_user["_id"]),
+            "full_name": profile.full_name,
+            "email": profile.email,
+            "phone": profile.phone,
+            # "profile_picture": profile.profile_picture,
+            "status": profile.status,
+            "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
+        await db.user_profile.insert_one(user_obj)
+        return {"message": "Profile created successfully"}
 
-        await db.APICredential.replace_one(
-            {"user": current_user},
-            doc,   # ✅ FIXED
-            upsert=True
-        )
-
-        return {
-            "app_key": app_key,
-            "secret_key": secret_key
+    # Update the user's profile in the database
+    result = await db.user_profile.update_one(
+        {"user": ObjectId(current_user["_id"])},
+        {
+            "$set": {
+                "full_name": profile.full_name,
+                "email": profile.email,
+                "phone": profile.phone,
+                # "profile_picture": profile.profile_picture,
+                "status": profile.status,
+                "updated_at": datetime.utcnow()
+            }
         }
+    )
+
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Profile not found or not updated")
+
+    return {"message": "Profile updated successfully"}
 
 
-    app_key = generate_app_key()
-    secret_key = generate_secret_key()
 
-    doc = {
-        "user": current_user,   # ✅ Correct
-        "app_key": app_key,
-        "secret_key_hash": hash_secret(secret_key),
-        "status": "active",
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
-    }
 
-    await db.APICredential.insert_one(doc)
+# Create a directory for uploads if it doesn't exist
+UPLOAD_DIR = Path("assets/profile_pics")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+@router.patch("/profile/picture/edit/")
+async def update_profile(
+    request: Request,
+    current_user: Annotated[dict, Depends(user_utils.get_current_active_user)],
+    profile_picture: UploadFile = File(...) # This captures the binary file
+):
+    user_id = ObjectId(current_user["_id"])
+
+    # 1. Create a unique filename
+    file_extension = profile_picture.filename.split(".")[-1]
+    file_name = f"{user_id}_{int(datetime.utcnow().timestamp())}.{file_extension}"
+    file_path = UPLOAD_DIR / file_name
+
+    # 2. Save the file to your local disk
+    with file_path.open("wb") as buffer:
+        shutil.copyfileobj(profile_picture.file, buffer)
+
+    # 3. Save the PATH string to MongoDB
+    # Using an upsert logic to handle both "Create" and "Update" cases at once
+    now = datetime.utcnow()
+    base_url = str(request.base_url).rstrip("/")
+    relative_path = f"{base_url}/assets/profile_pics/{file_name}"
+
+    await db.user_profile.update_one(
+        {"user": user_id},
+        {
+            "$set": {
+                "profile_picture": relative_path,
+                "updated_at": now
+            },
+            "$setOnInsert": {
+                "user": user_id,
+                "created_at": now,
+                "full_name": current_user.get("full_name"), # Default from user account
+                "status": True
+            }
+        },
+        upsert=True
+    )
+
+    return {"message": "Profile picture updated", "url": relative_path}
+
+
+
+
+@router.get("/secret/generate/")
+async def secret_api_key(
+    current_user: Annotated[dict, Depends(user_utils.get_current_active_user)]
+):
+    # Ensure current_user["_id"] is converted to ObjectId correctly
+    try:
+        user_id = ObjectId(current_user["_id"])
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid User ID format")
+
+    # 1. Verify subscription
+    user_sub = await db.user_subscription.find_one({"user_id": user_id})
+    if not user_sub:
+        raise HTTPException(status_code=403, detail="Active subscription required")
+
+    # 2. Generate new keys
+    raw_secret = generate_secret_key()
+    app_key = secrets.token_hex(8)
+    hashed_secret = hash_secret(raw_secret)
+
+    # Use timezone-aware UTC (utcnow is deprecated in newer Python versions)
+    now = datetime.now(timezone.utc)
+
+    # 3. Atomic Upsert
+    # Note: Ensure the filter field "user_id" matches your DB schema
+    result = await db.APICredential.update_one(
+        {"user_id": user_id},
+        {
+            "$set": {
+                "app_key": app_key,
+                "secret_key_hash": hashed_secret,
+                "status": "active",
+                "updated_at": now
+            },
+            "$setOnInsert": {
+                "user_id": user_id,
+                "created_at": now
+            }
+        },
+        upsert=True
+    )
+
+    # Log for debugging - if modified_count + upserted_id == 0, something is wrong
+    print(f"Matched: {result.matched_count}, Modified: {result.modified_count}")
+
+    # 4. Return the RAW secret
     return {
         "app_key": app_key,
-        "secret_key": secret_key
+        "secret_key": hashed_secret,
+        "notice": "Store this secret safely. It will not be shown again."
     }
 
 
@@ -249,7 +356,9 @@ async def get_secret_api_key(
         Depends(user_utils.get_current_active_user)
     ]
 ):
-    is_secret = await db.APICredential.find_one({"user": current_user})
+
+    # is_secret = await db.APICredential.find_one({"user": ObjectId(current_user["_id"])})
+    is_secret = await db.APICredential.find_one({"user_id": ObjectId(current_user["_id"])})
 
     if not is_secret:
         raise HTTPException(
@@ -291,35 +400,3 @@ async def api_uses(
         data.append(item)
 
     return { "data": data }
-
-# @router.get("/api-uses/")
-# async def api_uses(
-#     current_user: Annotated[
-#         users_models.User,
-#         Depends(user_utils.get_current_active_user)
-#     ]
-# ):
-#     # Ensure we have a string ID for the query
-#     # If current_user is a Pydantic model, use current_user.id
-#     user_id_str = str(current_user["_id"])
-
-#     cursor = db.api_hits.find({"user_id": bson.ObjectId(user_id_str)})
-#     hits = await cursor.to_list(length=100)
-
-#     # The loop that prevents the "builtin_function_or_method" error
-#     # By manually creating a clean list of dicts
-#     sanitized_hits = []
-#     for hit in hits:
-#         clean_hit = {
-#             "id": str(hit["_id"]),
-#             "user_id": str(hit["user_id"]),
-#             # Add other fields explicitly or use a dict comprehension
-#             "endpoint": hit.get("endpoint"),
-#             "timestamp": hit.get("timestamp")
-#         }
-#         sanitized_hits.append(clean_hit)
-
-#     return {
-#         "user_id": user_id_str,
-#         "hits": sanitized_hits
-#     }
