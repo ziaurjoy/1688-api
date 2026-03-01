@@ -20,6 +20,7 @@ from models import users as users_models
 from utils.users import generate_secret_key, hash_secret
 
 from dotenv import load_dotenv
+from models.users import ResetPasswordRequest
 load_dotenv()
 
 # openssl rand -hex 32
@@ -400,3 +401,69 @@ async def api_uses(
         data.append(item)
 
     return { "data": data }
+
+
+
+@router.post("/reset-password")
+async def reset_password(request: ResetPasswordRequest):
+    # 1. Normalize Input
+    _email = request.email.strip().lower()
+    _otp = request.otp.strip()
+
+    # 2. Verify OTP exists and is unused
+    otp_record = await db.OTP.find_one({
+        "email": _email,
+        "otp": _otp,
+        "verify": False
+    })
+
+    if not otp_record:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OTP or request already processed"
+        )
+
+    # 3. Handle Timezone Awareness (Fixes the TypeError)
+    expire_time = otp_record.get("expire")
+
+    # If it's a string, convert it; if it's already a datetime, ensure it's aware
+    if isinstance(expire_time, str):
+        expire_time = datetime.fromisoformat(expire_time)
+
+    if expire_time.tzinfo is None:
+        expire_time = expire_time.replace(tzinfo=timezone.utc)
+
+    # Compare aware vs aware
+    if expire_time < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OTP has expired"
+        )
+
+    # 4. Update the User Password
+    # Note: We filter ONLY by email here, as OTP lives in the OTP collection
+    new_hashed_password = user_utils.get_password_hash(request.new_password)
+
+    user_update = await db.User.update_one(
+        {"email": _email},
+        {
+            "$set": {
+                "password": new_hashed_password,
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+
+    if user_update.matched_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    # 5. Mark OTP as used (Invalidate)
+    await db.OTP.update_one(
+        {"_id": otp_record["_id"]},
+        {"$set": {"verify": True, "used_at": datetime.now(timezone.utc)}}
+    )
+
+    return {"status": "success", "message": "Password updated successfully"}

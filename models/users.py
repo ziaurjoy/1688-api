@@ -103,3 +103,10 @@ class APIHit(BaseModel):
     hits: int = 0
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+
+class ResetPasswordRequest(BaseModel):
+    otp: str
+    email: EmailStr
+    new_password: str
