@@ -229,3 +229,45 @@ async def get_user_payments(
         "total_pages": math.ceil(total / limit) if limit > 0 else 0,
         "results": payment_data,
     }
+
+
+@router.get("/transaction/details/{payment_id}")
+async def get_user_payments_details(
+    current_user: Annotated[dict, Depends(user_utils.get_current_active_user)],
+    payment_id: str,
+):
+    try:
+        # Safely get the user_id
+        user_id = ObjectId(current_user["_id"])
+    except Exception:
+        raise HTTPException(status_code=500, detail="Invalid User ID")
+
+    # Find the specific payment record by payment_id and user_id
+    payment = await db.payment_subscribe_invoices.find_one({
+        "_id": ObjectId(payment_id),
+        "user_id": user_id
+    })
+
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    # Convert the main ID
+    payment["id"] = str(payment.pop("_id"))
+
+    package_id = payment.get("package_id")
+    if package_id:
+        package_data = await db.subscription_package.find_one({"_id": ObjectId(package_id)})
+        if package_data:
+            # Convert package ObjectIds to strings
+            package_data["_id"] = str(package_data["_id"])
+            # Append the package object to the invoice document
+            payment["package"] = package_data
+
+    # Convert any other ObjectIds found in the document keys
+    for key, value in payment.items():
+        if isinstance(value, ObjectId):
+            payment[key] = str(value)
+
+    return {
+        "result": payment,
+    }

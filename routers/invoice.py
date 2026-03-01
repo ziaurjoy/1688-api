@@ -186,6 +186,58 @@ async def get_packages_with_features():
     return result
 
 
+from fastapi.encoders import jsonable_encoder
+
+
+
+
+@router.get("/details/{invoice_id}")
+async def generate_invoice_pdf(
+    invoice_id: str,
+    current_user: Annotated[
+        users_models.User,
+        Depends(user_utils.get_current_active_user)
+    ],
+):
+    try:
+        # 1. Convert inputs to ObjectId
+        user_id = ObjectId(current_user["_id"])
+
+        # 2. Fetch data
+        invoice = await db.subscription_invoices.find_one(
+            {"_id": ObjectId(invoice_id), "user_id": user_id}
+        )
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+
+        user = await db.User.find_one({"_id": user_id})
+        del user["password"]  # Remove sensitive info
+        package_data = await db.subscription_package.find_one(
+            {"_id": ObjectId(invoice["package_id"])}
+        )
+
+        # 3. Helper to sanitize MongoDB objects
+        def format_mongo(doc):
+            if doc:
+                doc["_id"] = str(doc["_id"])
+                # Also convert other ID references if they exist
+                if "package_id" in doc:
+                    doc["package_id"] = str(doc["package_id"])
+                if "user_id" in doc:
+                    doc["user_id"] = str(doc["user_id"])
+            return doc
+
+        return {
+            "invoice": jsonable_encoder(format_mongo(invoice)),
+            "user": jsonable_encoder(format_mongo(user)),
+            "package": jsonable_encoder(format_mongo(package_data))
+        }
+
+    except Exception as e:
+        # Keep the 500 for unexpected errors, but don't swallow 404s
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"Failed to fetch: {str(e)}")
 
 
 from fastapi import FastAPI, HTTPException
