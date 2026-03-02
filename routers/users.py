@@ -140,7 +140,11 @@ async def otp_verify(otp: users_models.OTP):
         }
     )
 
-    return {"message": "OTP verified successfully"}
+    # return {"message": "OTP verified successfully"}
+    return {
+        "title": "OTP Verified",
+        "message": "Your identity has been successfully confirmed. You can now set a new password for your account."
+    }
 
 
 
@@ -167,7 +171,12 @@ async def send_otp(email: users_models.SendOTPRequest):
     # ✅ Insert OTP
     await db.OTP.insert_one(otp_data)
 
-    return {"message": "OTP sent successfully"}
+    return {
+        "title": "Check Your Inbox",
+        "message": f"We've sent a 6-digit verification code to {email.email}. Please enter it below to continue."
+    }
+
+    # return {"message": "OTP sent successfully"}
 
 
 
@@ -414,7 +423,7 @@ async def reset_password(request: ResetPasswordRequest):
     otp_record = await db.OTP.find_one({
         "email": _email,
         "otp": _otp,
-        "verify": False
+        "verify": True
     })
 
     if not otp_record:
@@ -466,4 +475,7 @@ async def reset_password(request: ResetPasswordRequest):
         {"$set": {"verify": True, "used_at": datetime.now(timezone.utc)}}
     )
 
-    return {"status": "success", "message": "Password updated successfully"}
+    return {
+        "title": "Password Reset Successful",
+        "message": "Your account security has been updated. You can now log in with your new password."
+    }
