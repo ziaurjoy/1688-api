@@ -36,7 +36,7 @@ async def list_products(
 
 ):
 
-    user = await users_utils.fiend_credentials(request)
+    user = await users_utils.find_credentials(request)
 
     skip = (page - 1) * limit
 
@@ -95,9 +95,12 @@ async def list_products(
 
 
 @router.get("/{product_id}")
-async def get_product(product_id):
+async def get_product(request: Request, product_id: str):
+
+    await users_utils.find_credentials(request)
 
     product = await db.products.find_one({"offer_id": product_id})
+    print("------product details------", product)
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
     product_details = product.get("details", None)

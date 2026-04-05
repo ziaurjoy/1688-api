@@ -114,15 +114,13 @@ async def get_current_active_user(current_user: Annotated["users_models.User", D
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
+from fastapi import HTTPException, Request
 
+async def find_credentials(request: Request):
+    headers = dict(request.headers)
 
-async def fiend_credentials(requests):
-
-    headers = dict(requests.headers)
-    headers_dict = dict(headers)
-
-    app_key = headers_dict.get("app-key")
-    secret_key = headers_dict.get("secret-key")
+    app_key = headers.get("app-key")
+    secret_key = headers.get("secret-key")
 
     if not app_key or not secret_key:
         raise HTTPException(401, "Missing API credentials")
@@ -138,7 +136,9 @@ async def fiend_credentials(requests):
     if not credential:
         raise HTTPException(401, "Invalid API credentials")
 
-    user = credential.get('user')
+    user_id = credential.get('user_id')
+
+    user = await db.User.find_one({"_id": user_id})
 
     return user
 
