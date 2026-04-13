@@ -100,7 +100,6 @@ async def get_product(request: Request, product_id: str):
     await users_utils.find_credentials(request)
 
     product = await db.products.find_one({"offer_id": product_id})
-    print("------product details------", product)
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
     product_details = product.get("details", None)
