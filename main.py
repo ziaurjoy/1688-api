@@ -29,6 +29,7 @@ from routers.users import router as users_router
 from routers.subscription import router as subscription_router
 from routers.payment import router as payment_router
 from routers.invoice import router as invoice_router
+from routers.categories import router as categories_router
 
 from database import db
 
@@ -115,6 +116,7 @@ app.include_router(users_router)
 app.include_router(subscription_router)
 app.include_router(payment_router)
 app.include_router(invoice_router)
+app.include_router(categories_router)
 
 # --- 6. Root Redirect ---
 @app.get("/")

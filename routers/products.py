@@ -117,3 +117,17 @@ async def get_product(request: Request, product_id: str):
     product["_id"] = str(product["_id"])
     return {"updated": True, "product": product}
 
+
+
+
+
+@router.get("/category")
+async def products_category(request: Request):
+
+    user = await users_utils.find_credentials(request)
+
+    categories = await db.categories.find().to_list(length=None)
+
+    return {
+        "categories": categories
+    }
