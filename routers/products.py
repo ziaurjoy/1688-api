@@ -68,6 +68,9 @@ async def list_products(
         products = []
         async for product in cursor:
             product["_id"] = str(product["_id"])
+
+
+
             products.append(product)
 
         return {
@@ -82,6 +85,10 @@ async def list_products(
 
     products = []
     async for product in cursor:
+
+        if not product.get("image", None).startswith("http"):
+            product["image"] = 'http://localhost:8001/assets/images/' + product["image"]
+
         product["_id"] = str(product["_id"])
         products.append(product)
 

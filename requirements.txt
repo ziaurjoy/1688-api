@@ -7,3 +7,4 @@ pwdlib[argon2]==0.3.0
 weasyprint==68.1
 fastdaisy-admin==0.0.81
 fastapi-mongo-admin==0.1.2
+python-dotenv==1.2.2
