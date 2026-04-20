@@ -86,8 +86,9 @@ async def list_products(
     products = []
     async for product in cursor:
 
-        if not product.get("image", None).startswith("http"):
-            product["image"] = 'http://localhost:8001/assets/images/' + product["image"]
+        # if not product.get("image", None).startswith("http"):
+        #     product["image"] = 'http://localhost:8001/assets/images/' + product["image"]
+        product["image"] = product["image"].replace('http://localhost:8001', 'http://192.168.68.118:8001')
 
         product["_id"] = str(product["_id"])
         products.append(product)

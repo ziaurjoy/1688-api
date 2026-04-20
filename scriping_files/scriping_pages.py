@@ -129,7 +129,7 @@ async def parse_product_card(card):
         "offer_id": offer_id,
         "title": await qs(".offer-title"),
         "url": href,
-        "image": save_image_from_url(await qs("img.main-img", attr="src"), f"{os.environ.get('BACKEND_URL')}/assets/images/product_images"),
+        "image": save_image_from_url(await qs("img.main-img", attr="src"), f"assets/images/product_images"),
         "price": {
             "currency": currency,
             "amount": amount,

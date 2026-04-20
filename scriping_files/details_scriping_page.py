@@ -284,7 +284,7 @@ async def extract_product_variants(page):
                         # Save image locally
                         if color_variant_images:
                             try:
-                                color_variant["image"] = save_image_from_url(color_variant_images, save_dir=f"{os.environ.get('BACKEND_URL')}/assets/images/variant_images")
+                                color_variant["image"] = save_image_from_url(color_variant_images, save_dir=f"assets/images/variant_images")
                             except Exception:
                                 pass
                 except Exception:
@@ -387,7 +387,7 @@ async def extract_product_description(page):
     for i in range(await imgs.count()):
         src = await imgs.nth(i).get_attribute("src")
         if src:
-            local_file_path = save_image_from_url(src, save_dir=f"{os.environ.get('BACKEND_URL')}/assets/images/description_images")
+            local_file_path = save_image_from_url(src, save_dir=f"assets/images/description_images")
             description["images"].append(local_file_path)
 
 
