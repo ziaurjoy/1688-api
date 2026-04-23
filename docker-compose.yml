@@ -1,4 +1,4 @@
-version: '3.9'
+version: '3.14'
 
 services:
   app:
@@ -6,7 +6,7 @@ services:
     container_name: fastapi_app
     env_file: .env
     ports:
-      - '${APP_PORT}:8000'
+      - '${APP_PORT}:${APP_PORT}'
     depends_on:
       - mongo
     environment:
