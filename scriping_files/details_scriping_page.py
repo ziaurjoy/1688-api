@@ -57,8 +57,41 @@ def save_image_from_url(image_url: str, save_dir: str = "downloads"):
 # JSON Utilities
 # ---------------------------
 
+import re
+
+
 
 async def extract_categories(page):
+
+    script_content = page.evaluate("""
+        () => {
+            const scripts = document.querySelectorAll('script');
+            for (const s of scripts) {
+                if (s.innerText.includes('window.context')) {
+                    return s.innerText;
+                }
+            }
+            return null;
+        }
+    """)
+
+    # Extract JSON from the script using regex
+    match = re.search(r'window\.context\s*=\s*\(function.*?\)\s*\(.*?,\s*(\{.*\})\s*\)\s*;', script_content, re.DOTALL)
+
+    if match:
+        raw_json = match.group(1)
+        data = json.loads(raw_json)
+
+        offer_detail = data['result']['global']['globalData']['model']['offerDetail']
+
+        # leafCategoryName
+        print("leafCategoryName:", offer_detail['leafCategoryName'])
+
+        # All feature attribute values
+        print("\nFeature Attributes:")
+        for attr in offer_detail.get('featureAttributes', []):
+            print(f"  {attr['name']}: {attr['value']}")
+
 
     item_name = await page.locator("#productTitle h1").inner_text()
     item_name = item_name.strip()
@@ -251,8 +284,6 @@ async def extract_product_variants(page):
         color_buttons = page.locator(".transverse-filter .sku-filter-button")
         color_count = await color_buttons.count()
 
-        print(f"Found {color_count} color variants")
-
         for i in range(color_count):
             try:
                 # Re-query color buttons in case DOM changed
@@ -301,8 +332,6 @@ async def extract_product_variants(page):
                     size_container = page.locator(".expand-view-list")
                     size_items = size_container.locator(".expand-view-item")
                     size_count = await size_items.count()
-
-                    print(f"  Color {i+1}: '{color_variant['color_name']}' has {size_count} sizes")
 
                     for j in range(size_count):
                         try:
@@ -522,11 +551,9 @@ async def collect_product_details(page, url, product_id, browser, context):
     """Collect details for a single product"""
 
     try:
-        print(f"Fetching details from: {url}")
         await page.goto(url)
 
         details = await parse_product_details(page)
-        print('=====details', details)
         await db.products.update_one(
             {"offer_id": product_id},
             {"$set": {"details": details}},
@@ -537,7 +564,6 @@ async def collect_product_details(page, url, product_id, browser, context):
 
 
     except Exception as e:
-        print(f"✗ Failed after 3 attempts for {url}")
         await context.close()
         await browser.close()
 

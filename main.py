@@ -1,10 +1,20 @@
 
 import os
 import sys
+from database import db
+
+from fastapi.staticfiles import StaticFiles
+from fastapi_mongo_admin import mount_admin_app
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Response, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+
+from routers.users import router as users_router
+from routers.payment import router as payment_router
+from routers.invoice import router as invoice_router
+from routers.products import router as product_router
+from routers.categories import router as categories_router
+from routers.subscription import router as subscription_router
 
 from dotenv import load_dotenv
 
@@ -18,20 +28,8 @@ if BASE_DIR not in sys.path:
 script_dir = os.path.dirname(__file__)
 upload_dir = os.path.join(script_dir, "")
 
-
-
 if not os.path.exists(upload_dir):
     os.makedirs(upload_dir)
-
-from fastapi_mongo_admin import mount_admin_app
-from routers.products import router as product_router
-from routers.users import router as users_router
-from routers.subscription import router as subscription_router
-from routers.payment import router as payment_router
-from routers.invoice import router as invoice_router
-from routers.categories import router as categories_router
-
-from database import db
 
 
 # Initialize App
