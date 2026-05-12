@@ -59,7 +59,7 @@ async def list_products(
 
     if total == 0 and searching:
         try:
-            await playwright_main(searching)
+            await playwright_main(searching, request)
         except Exception as e:
             pass
 
@@ -88,7 +88,15 @@ async def list_products(
 
         # if not product.get("image", None).startswith("http"):
         #     product["image"] = 'http://localhost:8001/assets/images/' + product["image"]
-        product["image"] = product["image"].replace('http://localhost:8001', 'http://192.168.68.118:8001')
+        image = product.get("image")
+
+        product["image"] = (
+            f"{request.base_url}{image}"
+            if image and image.startswith("assets")
+            else image.replace("http://localhost:8001", "http://192.168.68.118:8001")
+            if image
+            else None
+        )
 
         product["_id"] = str(product["_id"])
         products.append(product)
@@ -115,7 +123,7 @@ async def get_product(request: Request, product_id: str):
         product_id = product.get('offer_id')
         details_link = product.get('url')
 
-        await playwright_main_details(details_link, product_id)
+        await playwright_main_details(details_link, product_id, request)
         product = await db.products.find_one({"offer_id": product_id})
 
         product["_id"] = str(product["_id"])

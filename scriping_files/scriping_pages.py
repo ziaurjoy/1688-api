@@ -6,6 +6,7 @@ import os
 import random
 from urllib.parse import urlparse, parse_qs
 from playwright.async_api import async_playwright
+from utils import utils as utils_file
 
 try:
     from database import db
@@ -95,7 +96,7 @@ async def parse_categories(page):
     return data
 
 
-async def parse_product_card(card):
+async def parse_product_card(card, requests):
     async def qs(selector, attr=None):
         el = await card.query_selector(selector)
         if not el:
@@ -129,7 +130,7 @@ async def parse_product_card(card):
         "offer_id": offer_id,
         "title": await qs(".offer-title"),
         "url": href,
-        "image": save_image_from_url(await qs("img.main-img", attr="src"), f"assets/images/product_images"),
+        "image": save_image_from_url(await qs("img.main-img", attr="src"), f"{utils_file.get_project_url(requests)}assets/images/product_images"),
         "price": {
             "currency": currency,
             "amount": amount,
@@ -216,7 +217,7 @@ async def click_next_page(page):
         return {"has_next": False, "page": page}
 
 
-async def extract_products_from_page(page, browser, context):
+async def extract_products_from_page(page, browser, context, requests):
 
     state = load_state(state_file_path)
     current_page = state["current_page"]
@@ -242,7 +243,7 @@ async def extract_products_from_page(page, browser, context):
         cards = await page.query_selector_all("a.i18n-card-wrap")
 
         for card in cards:
-            product = await parse_product_card(card)
+            product = await parse_product_card(card, requests)
             product_id = product.get("offer_id")
 
             query = {
@@ -285,7 +286,7 @@ async def extract_products_from_page(page, browser, context):
 
 
 
-async def process_item(page, searching_key, browser, context):
+async def process_item(page, searching_key, browser, context, requests):
     url = f"https://s.1688.com/selloffer/offer_search.htm?charset=utf8&keywords={searching_key}"
     for attempt in range(3):
         try:
@@ -300,7 +301,7 @@ async def process_item(page, searching_key, browser, context):
             else:
                 raise e
     try:
-        await extract_products_from_page(page, browser, context)
+        await extract_products_from_page(page, browser, context, requests)
 
     except Exception as e:
         print(f"Error processing item {searching_key}: {e}")
@@ -310,7 +311,7 @@ async def process_item(page, searching_key, browser, context):
 
 
 
-async def playwright_main(searching_key):
+async def playwright_main(searching_key, requests):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=False)
         context = await browser.new_context(
@@ -378,7 +379,7 @@ async def playwright_main(searching_key):
 
         page = await context.new_page()
 
-        await process_item(page, searching_key, browser, context)
+        await process_item(page, searching_key, browser, context, requests)
 
         # Collect details for each product
         success_count = 0

@@ -9,7 +9,7 @@ from playwright.async_api import async_playwright
 from dotenv import load_dotenv
 
 load_dotenv(verbose=True, override=True)
-
+from utils import utils as utils_file
 
 try:
     from database import db
@@ -273,7 +273,7 @@ async def extract_product_packing(page):
 
 
 
-async def extract_product_variants(page):
+async def extract_product_variants(page, requests):
     """
     Extract full SKU matrix dynamically: click each color variant and get only its sizes.
     """
@@ -315,7 +315,7 @@ async def extract_product_variants(page):
                         # Save image locally
                         if color_variant_images:
                             try:
-                                color_variant["image"] = save_image_from_url(color_variant_images, save_dir=f"assets/images/variant_images")
+                                color_variant["image"] = save_image_from_url(color_variant_images, save_dir=f"{utils_file.get_project_url(requests)}assets/images/variant_images")
                             except Exception:
                                 pass
                 except Exception:
@@ -395,7 +395,7 @@ async def extract_product_variants(page):
         return []
 
 
-async def extract_product_description(page):
+async def extract_product_description(page, requests):
     """
     Extract product description and price description from 1688 product detail page
     """
@@ -416,7 +416,7 @@ async def extract_product_description(page):
     for i in range(await imgs.count()):
         src = await imgs.nth(i).get_attribute("src")
         if src:
-            local_file_path = save_image_from_url(src, save_dir=f"assets/images/description_images")
+            local_file_path = save_image_from_url(src, save_dir=f"{utils_file.get_project_url(requests)}assets/images/description_images")
             description["images"].append(local_file_path)
 
 
@@ -448,10 +448,11 @@ async def extract_product_description(page):
     return description
 
 
-async def extract_product_title_and_cart(page):
+async def extract_product_title_and_cart(page, requests):
     """
     Extract productTitle and cartScrollBar data from 1688 product page
     :param page: playwright.async_api.Page
+    :param requests: Request object
     :return: dict
     """
 
@@ -526,7 +527,7 @@ async def extract_product_title_and_cart(page):
     return data
 
 
-async def parse_product_details(page):
+async def parse_product_details(page, requests):
     """Extract product details from 1688 product detail page"""
 
     # try:
@@ -534,9 +535,9 @@ async def parse_product_details(page):
         "extract_product_reviews": await extract_product_reviews(page),
         "extract_product_attributes": await extract_product_attributes(page),
         "extract_product_packing": await extract_product_packing(page),
-        "extract_product_description": await extract_product_description(page),
-        "extract_product_title_and_cart": await extract_product_title_and_cart(page),
-        "extract_product_variants": await extract_product_variants(page),
+        "extract_product_description": await extract_product_description(page, requests),
+        "extract_product_title_and_cart": await extract_product_title_and_cart(page, requests),
+        "extract_product_variants": await extract_product_variants(page, requests),
         "extract_categories": await extract_categories(page),
     }
 
@@ -547,13 +548,13 @@ async def parse_product_details(page):
 # Product Detail Collector
 # ---------------------------
 
-async def collect_product_details(page, url, product_id, browser, context):
+async def collect_product_details(page, url, product_id, browser, context, request):
     """Collect details for a single product"""
 
     try:
         await page.goto(url)
 
-        details = await parse_product_details(page)
+        details = await parse_product_details(page, request)
         await db.products.update_one(
             {"offer_id": product_id},
             {"$set": {"details": details}},
@@ -577,7 +578,7 @@ async def collect_product_details(page, url, product_id, browser, context):
 # Playwright Main
 # ---------------------------
 
-async def playwright_main_details(details_link, product_id):
+async def playwright_main_details(details_link, product_id, request):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=False)
         context = await browser.new_context(
@@ -646,7 +647,7 @@ async def playwright_main_details(details_link, product_id):
         page = await context.new_page()
 
         # await process_item(page, searching_key, browser, context)
-        await collect_product_details(page, details_link, product_id, browser, context)
+        await collect_product_details(page, details_link, product_id, browser, context, request)
 
         # Collect details for each product
         success_count = 0
