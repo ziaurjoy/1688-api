@@ -554,6 +554,8 @@ async def collect_product_details(page, url, product_id, browser, context, reque
     try:
         await page.goto(url)
 
+
+
         details = await parse_product_details(page, request)
         await db.products.update_one(
             {"offer_id": product_id},
@@ -580,69 +582,76 @@ async def collect_product_details(page, url, product_id, browser, context, reque
 
 async def playwright_main_details(details_link, product_id, request):
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
+        browser = await p.chromium.launch(headless=True, proxy={
+            "server": 'https://dc.oxylabs.io:8001',
+            "username": 'mailze_sopfV',
+            "password": 'RSK_s9z4PdcC'
+        })
+
+        user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+
         context = await browser.new_context(
             ignore_https_errors=True,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            user_agent=user_agent,
         )
 
         # Load cookies if available
-        try:
-            # with open("cookie.json", "r", encoding="utf-8") as f:
-            #     cookies = json.load(f)
-            cookie_file = os.path.join(os.path.dirname(__file__), "cookie.json")
-            # if os.path.exists(cookie_file):
-            with open(cookie_file, "r", encoding="utf-8") as f:
-                cookies = json.load(f)
+        # try:
+        #     # with open("cookie.json", "r", encoding="utf-8") as f:
+        #     #     cookies = json.load(f)
+        #     cookie_file = os.path.join(os.path.dirname(__file__), "cookie.json")
+        #     # if os.path.exists(cookie_file):
+        #     with open(cookie_file, "r", encoding="utf-8") as f:
+        #         cookies = json.load(f)
 
-            formatted = []
-            for c in cookies:
-                try:
-                    cookie = {
-                        "name": c.get("name"),
-                        "value": c.get("value", ""),
-                        "domain": c.get("domain"),
-                        "path": c.get("path", "/"),
-                        "secure": bool(c.get("secure", False)),
-                        "httpOnly": bool(c.get("httpOnly", False))
-                    }
+        #     formatted = []
+        #     for c in cookies:
+        #         try:
+        #             cookie = {
+        #                 "name": c.get("name"),
+        #                 "value": c.get("value", ""),
+        #                 "domain": c.get("domain"),
+        #                 "path": c.get("path", "/"),
+        #                 "secure": bool(c.get("secure", False)),
+        #                 "httpOnly": bool(c.get("httpOnly", False))
+        #             }
 
-                    # Normalize expiration to integer seconds if provided
-                    if "expirationDate" in c and c.get("expirationDate") is not None:
-                        cookie["expires"] = int(c["expirationDate"])
+        #             # Normalize expiration to integer seconds if provided
+        #             if "expirationDate" in c and c.get("expirationDate") is not None:
+        #                 cookie["expires"] = int(c["expirationDate"])
 
-                    # Normalize sameSite values. Accept common variants and skip None.
-                    same = c.get("sameSite")
-                    if isinstance(same, str):
-                        s = same.lower()
-                        if s in ("no_restriction", "none"):
-                            cookie["sameSite"] = "None"
-                        elif s == "lax":
-                            cookie["sameSite"] = "Lax"
-                        elif s == "strict":
-                            cookie["sameSite"] = "Strict"
+        #             # Normalize sameSite values. Accept common variants and skip None.
+        #             same = c.get("sameSite")
+        #             if isinstance(same, str):
+        #                 s = same.lower()
+        #                 if s in ("no_restriction", "none"):
+        #                     cookie["sameSite"] = "None"
+        #                 elif s == "lax":
+        #                     cookie["sameSite"] = "Lax"
+        #                 elif s == "strict":
+        #                     cookie["sameSite"] = "Strict"
 
-                    formatted.append(cookie)
-                except Exception as e:
-                    print(f"Skipping invalid cookie {c.get('name')}: {e}")
+        #             formatted.append(cookie)
+        #         except Exception as e:
+        #             print(f"Skipping invalid cookie {c.get('name')}: {e}")
 
-            # Try to add cookies in bulk; if that fails, add them one-by-one to isolate bad cookies
-            try:
-                await context.add_cookies(formatted)
-                print(f"Loaded {len(formatted)} cookies")
-            except Exception as e:
-                print(f"Bulk add_cookies failed: {e}. Trying individually...")
-                added = 0
-                for c in formatted:
-                    try:
-                        await context.add_cookies([c])
-                        added += 1
-                    except Exception as e2:
-                        print(f"Skipping cookie {c.get('name')} due to error: {e2}")
-                print(f"Loaded {added} cookies (individual add)")
+        #     # Try to add cookies in bulk; if that fails, add them one-by-one to isolate bad cookies
+        #     try:
+        #         await context.add_cookies(formatted)
+        #         print(f"Loaded {len(formatted)} cookies")
+        #     except Exception as e:
+        #         print(f"Bulk add_cookies failed: {e}. Trying individually...")
+        #         added = 0
+        #         for c in formatted:
+        #             try:
+        #                 await context.add_cookies([c])
+        #                 added += 1
+        #             except Exception as e2:
+        #                 print(f"Skipping cookie {c.get('name')} due to error: {e2}")
+        #         print(f"Loaded {added} cookies (individual add)")
 
-        except Exception as e:
-            print(f"Cookie load error: {e}")
+        # except Exception as e:
+        #     print(f"Cookie load error: {e}")
 
         page = await context.new_page()
 
@@ -654,13 +663,13 @@ async def playwright_main_details(details_link, product_id, request):
         failed_count = 0
 
         # Save cookies
-        try:
-            cookies = await context.cookies()
-            with open("cookie.json", "w", encoding="utf-8") as f:
-                json.dump(cookies, f, indent=4, ensure_ascii=False)
-            print(f"\nUpdated cookies saved")
-        except Exception as e:
-            print(f"Error saving cookies: {e}")
+        # try:
+        #     cookies = await context.cookies()
+        #     with open("cookie.json", "w", encoding="utf-8") as f:
+        #         json.dump(cookies, f, indent=4, ensure_ascii=False)
+        #     print(f"\nUpdated cookies saved")
+        # except Exception as e:
+        #     print(f"Error saving cookies: {e}")
 
         await browser.close()
 
