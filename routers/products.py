@@ -121,6 +121,19 @@ class SortOption(str, Enum):
     rating     = "rating"
     newest     = "newest"
 
+
+from pydantic import BaseModel
+
+class AttributeWithValues(BaseModel):
+    attribute_name: str
+    values: list[str]
+
+
+class CategoryAttributesResponse(BaseModel):
+    category_name: str
+    attributes: list[AttributeWithValues]
+
+
 @router.get("/")
 async def list_products(
     request: Request,
@@ -212,6 +225,41 @@ async def list_products(
         )
         product["_id"] = str(product["_id"])
         products.append(product)
+
+
+
+        # matched = db.attribute_values.find_one(searching)
+        matched = db.attribute_values.find_one("Fashion Accessories & Jewelry")
+        print('---matched', matched)
+        if not matched:
+            # Case-insensitive fallback
+            lower = searching.lower()
+            for key in matched:
+                if key.lower() == lower:
+                    matched = matched[key]
+                    searching = key
+                    break
+
+        if not matched:
+            available = list(matched.keys())
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "message": f"Category '{searching}' not found.",
+                    "available_categories": available,
+                },
+            )
+
+        xyz =  CategoryAttributesResponse(
+            category_name=searching,
+            attributes=[
+                AttributeWithValues(attribute_name=attr, values=vals)
+                for attr, vals in matched.items()
+            ],
+        )
+
+        print('======xyz', xyz)
+
 
     return {
         "page":        page,
