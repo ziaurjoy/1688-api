@@ -226,39 +226,60 @@ async def list_products(
         product["_id"] = str(product["_id"])
         products.append(product)
 
+        import re
+
+        # searching = "Fashion Accessories & Jewelry"
+        if searching:
 
 
-        # matched = db.attribute_values.find_one(searching)
-        matched = db.attribute_values.find_one("Fashion Accessories & Jewelry")
-        print('---matched', matched)
-        if not matched:
-            # Case-insensitive fallback
-            lower = searching.lower()
-            for key in matched:
-                if key.lower() == lower:
-                    matched = matched[key]
-                    searching = key
-                    break
+            search_words = [word for word in re.split(r'[\s&,]+', searching) if len(word) > 2]
+            pattern = '|'.join(re.escape(word) for word in search_words)
 
-        if not matched:
-            available = list(matched.keys())
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "message": f"Category '{searching}' not found.",
-                    "available_categories": available,
-                },
-            )
+            # Query MongoDB with case-insensitive regex on the keys
+            categories_doc = await db.attribute_value.find_one({})
+            print('======categories_doc', categories_doc)
 
-        xyz =  CategoryAttributesResponse(
-            category_name=searching,
-            attributes=[
-                AttributeWithValues(attribute_name=attr, values=vals)
-                for attr, vals in matched.items()
-            ],
-        )
+            matched = None
+            if categories_doc:
+                for key in categories_doc:
+                    if re.search(pattern, key, re.IGNORECASE):
+                        matched = categories_doc[key]
+                        break
 
-        print('======xyz', xyz)
+            # categories_doc = await db.attribute_value.find_one({})
+            # print('======categories_doc', categories_doc)
+            # matched = categories_doc.get(searching) if categories_doc else None
+
+
+            # if not matched:
+            #     lower = searching.lower()
+            #     if categories_doc:
+            #         for key, value in categories_doc.items():
+            #             if key != '_id' and key.lower() == lower:
+            #                 matched = value
+            #                 searching = key
+            #                 break
+
+            # if not matched:
+            #     available_categories = [
+            #         key for key in categories_doc.keys() if key != '_id'
+            #     ] if categories_doc else []
+            #     raise HTTPException(
+            #         status_code=404,
+            #         detail={
+            #             "message": f"Category '{searching}' not found.",
+            #             "available_categories": available_categories,
+            #         },
+            #     )
+            if matched:
+                filter = CategoryAttributesResponse(
+                    category_name=searching,
+                    attributes=[
+                        AttributeWithValues(attribute_name=attr, values=vals)
+                        for attr, vals in matched.items()
+                    ],
+                )
+                print('======filter', filter)
 
 
     return {
@@ -267,6 +288,7 @@ async def list_products(
         "total":       total,
         "total_pages": ceil(total / limit),
         "results":     products,
+        "filters": filter.dict() if searching and matched else None,  # include filter info only if searching
     }
 
 
