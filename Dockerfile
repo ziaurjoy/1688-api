@@ -7,6 +7,7 @@ WORKDIR /app
 # Prevent Python from writing .pyc files and buffering stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
+ENV APP_PORT=8001
 
 # Install system dependencies for WeasyPrint
 RUN apt-get update && apt-get install -y \
@@ -25,12 +26,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Expose the port FastAPI will run on
-EXPOSE ${APP_PORT:-8000}
-
-# # Start the application using Uvicorn
-# CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "${APP_PORT:-8000}"]
-
-
-ENV APP_PORT=8000
+EXPOSE ${APP_PORT}
 
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $APP_PORT"]
