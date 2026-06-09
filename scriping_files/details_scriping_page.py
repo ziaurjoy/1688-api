@@ -582,17 +582,31 @@ async def collect_product_details(page, url, product_id, browser, context, reque
 
 async def playwright_main_details(details_link, product_id, request):
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, proxy={
-            "server": 'https://dc.oxylabs.io:8001',
-            "username": 'mailze_sopfV',
-            "password": 'RSK_s9z4PdcC'
-        })
+        # browser = await p.chromium.launch(headless=True, proxy={
+        #     "server": 'https://dc.oxylabs.io:8001',
+        #     "username": 'mailze_sopfV',
+        #     "password": 'RSK_s9z4PdcC'
+        # })
 
-        user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+        # user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+
+        # context = await browser.new_context(
+        #     ignore_https_errors=True,
+        #     user_agent=user_agent,
+        # )
+
+        playwright_endpoint = os.getenv("PLAYWRIGHT_ENDPOINT")
+        print(f"PLAYWRIGHT_ENDPOINT: {playwright_endpoint}")
+        if playwright_endpoint:
+            print(f"Connecting to Playwright server at: {playwright_endpoint}")
+            browser = await p.chromium.connect(f'ws://playwright-server:{playwright_endpoint}/')
+        else:
+            print("PLAYWRIGHT_ENDPOINT not set, launching local browser")
+            browser = await p.chromium.launch(headless=False)
 
         context = await browser.new_context(
             ignore_https_errors=True,
-            user_agent=user_agent,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         )
 
         # Load cookies if available

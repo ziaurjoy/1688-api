@@ -6,7 +6,10 @@ import os
 import random
 from urllib.parse import urlparse, parse_qs
 from playwright.async_api import async_playwright
+from dotenv import load_dotenv
 from utils import utils as utils_file
+
+load_dotenv()
 
 try:
     from database import db
@@ -313,7 +316,15 @@ async def process_item(page, searching_key, browser, context, requests):
 
 async def playwright_main(searching_key, requests):
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
+        playwright_endpoint = os.getenv("PLAYWRIGHT_ENDPOINT")
+        print(f"PLAYWRIGHT_ENDPOINT: {playwright_endpoint}")
+        if playwright_endpoint:
+            print(f"Connecting to Playwright server at: {playwright_endpoint}")
+            browser = await p.chromium.connect(f'ws://playwright-server:{playwright_endpoint}/')
+        else:
+            print("PLAYWRIGHT_ENDPOINT not set, launching local browser")
+            browser = await p.chromium.launch(headless=False)
+
         context = await browser.new_context(
             ignore_https_errors=True,
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
