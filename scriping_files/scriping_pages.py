@@ -316,13 +316,13 @@ async def process_item(page, searching_key, browser, context, requests):
 
 async def playwright_main(searching_key, requests):
     async with async_playwright() as p:
-        playwright_endpoint = os.getenv("PLAYWRIGHT_ENDPOINT")
-        print(f"PLAYWRIGHT_ENDPOINT: {playwright_endpoint}")
-        if playwright_endpoint:
-            print(f"Connecting to Playwright server at: {playwright_endpoint}")
-            browser = await p.chromium.connect(f'ws://playwright-server:{playwright_endpoint}/')
+        PLAYWRIGHT_PORT = os.getenv("PLAYWRIGHT_PORT")
+        print(f"PLAYWRIGHT_PORT: {PLAYWRIGHT_PORT}")
+        if PLAYWRIGHT_PORT:
+            print(f"Connecting to Playwright server at: {PLAYWRIGHT_PORT}")
+            browser = await p.chromium.connect(f'ws://playwright-server:{PLAYWRIGHT_PORT}/')
         else:
-            print("PLAYWRIGHT_ENDPOINT not set, launching local browser")
+            print("PLAYWRIGHT_PORT not set, launching local browser")
             browser = await p.chromium.launch(headless=False)
 
         context = await browser.new_context(

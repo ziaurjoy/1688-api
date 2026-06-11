@@ -4,3 +4,5 @@ __pycache__
 .vscode
 assets
 jsondata
+.playwright-profile
+output

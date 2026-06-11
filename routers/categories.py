@@ -9,7 +9,7 @@ from database import db
 from models.products import Product
 
 from scriping_files.scriping_pages import playwright_main
-from scriping_files.details_scriping_page import playwright_main_details
+
 from models.users import User
 from utils import users as users_utils
 

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Query, HTTPException, Header, Request
 from database import db
 from models.products import Product
 
+from scriping_files.scrape_details1688 import scrape_details_page1688
 from scriping_files.scriping_pages import playwright_main
 from scriping_files.details_scriping_page import playwright_main_details
 from models.users import User
@@ -173,7 +174,9 @@ async def get_product(request: Request, product_id: str):
         product_id = product.get('offer_id')
         details_link = product.get('url')
 
-        await playwright_main_details(details_link, product_id, request)
+        # await playwright_main_details(details_link, product_id, request)
+        await scrape_details_page1688(product_id, request)
+
         product = await db.products.find_one({"offer_id": product_id})
 
         product["_id"] = str(product["_id"])
