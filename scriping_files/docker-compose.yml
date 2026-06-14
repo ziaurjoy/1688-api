@@ -1,0 +1,66 @@
+services:
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_PORT: ${APP_PORT:-8000}
+    image: 1688-scraper
+    container_name: 1688-scraper
+
+    # All runtime config comes from .env – nothing is hardcoded here
+    env_file: .env
+
+    ports:
+      - "${APP_PORT:-8000}:${APP_PORT:-8000}"
+
+    volumes:
+      # Persist output and browser profile across container restarts
+      - ./output:/app/output
+      - ./playwright-profile:/app/.playwright-profile
+
+    # Playwright headed mode needs /dev/shm for Chromium's shared memory
+    shm_size: "1gb"
+
+    # Required for Xvfb virtual display inside the container
+    cap_add:
+      - SYS_ADMIN
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${APP_PORT:-8000}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  mongo:
+    image: mongo:7
+    container_name: 1688-mongo
+    restart: unless-stopped
+
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-secret}
+      MONGO_INITDB_DATABASE:      ${MONGO_DB:-scraper}
+
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+
+    volumes:
+      - mongo_data:/data/db
+
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  mongo_data:
