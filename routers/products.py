@@ -1,3 +1,4 @@
+import json
 import re
 import hashlib
 from math import ceil
@@ -162,50 +163,48 @@ async def list_products(
     }
 
 
+import json
+
+from bson.objectid import ObjectId
+import json
+
+def clean_document(obj):
+    if isinstance(obj, dict):
+        return {k: clean_document(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [clean_document(i) for i in obj]
+    elif isinstance(obj, ObjectId):
+        return str(obj)
+    return obj
+
+def serialize_product(product):
+    cleaned = clean_document(product)
+    json_string = json.dumps(cleaned)
+    product_back = json.loads(json_string)
+    return product_back
+
 @router.get("/{product_id}")
 async def get_product(request: Request, product_id: str):
 
     await users_utils.find_credentials(request)
 
-    # product = await db.products.find_one({"offer_id": product_id})
-
     product = await db.products.find_one({'offer_id': str(product_id)})
+
     if product and product.get('is_details_page') == True and product.get('details'):
-        print(f'✓ Product {product_id} already has details — returning cached data.')
-        return product
+
+        return serialize_product(product)
 
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
 
     product_id = product.get('offer_id')
-    details_link = product.get('url')
 
-    # await playwright_main_details(details_link, product_id, request)
-    # await scrape_details_page1688(product_id, request)
     await scrape_details_page1688(product_id, request)
     product = await db.products.find_one({"offer_id": product_id})
     product["_id"] = str(product["_id"])
     return {"updated": True, "product": product}
 
-    # product_details = product.get("details", None)
-    # print("hello")
-    # if product_details is None:
-    #     product_id = product.get('offer_id')
-    #     details_link = product.get('url')
 
-    #     # await playwright_main_details(details_link, product_id, request)
-    #     # await scrape_details_page1688(product_id, request)
-    #     print('===1')
-    #     await scrape_details_page1688(product_id, request)
-    #     print('===2')
-    #     product = await db.products.find_one({"offer_id": product_id})
-    #     print('===3')
-    #     product["_id"] = str(product["_id"])
-    #     return {"updated": True, "product": product}
-    # print('===4')
-    # # Return updated document
-    # product["_id"] = str(product["_id"])
-    # return {"updated": True, "product": product}
 
 
 
