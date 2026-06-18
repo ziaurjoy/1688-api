@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from dotenv import load_dotenv
+load_dotenv()
 
 from playwright.sync_api import Playwright, TimeoutError as PlaywrightTimeoutError, sync_playwright
 

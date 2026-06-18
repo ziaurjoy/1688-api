@@ -28,6 +28,7 @@ RUN playwright install chromium
 RUN playwright install-deps chromium
 
 # Copy the rest of the application code
+COPY .env .env
 COPY . .
 
 # Expose the port FastAPI will run on
