@@ -4,10 +4,34 @@ import asyncio
 import json
 import os
 import random
+import shutil
+import urllib.parse
+from pathlib import Path
 from urllib.parse import urlparse, parse_qs
-from playwright.async_api import async_playwright
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError, async_playwright
 from dotenv import load_dotenv
 from utils import utils as utils_file
+from scriping_files.config import (
+    BLOCK_HEAVY_RESOURCES,
+    BLOCKED_RESOURCE_TYPES,
+    BODY_WAIT_TIMEOUT_MS,
+    BROWSER_AGENTS,
+    CAPTCHA_KEYWORDS,
+    CHECK_PROXY_FIRST,
+    COOKIE_FILE,
+    FRESH_BROWSER_PROFILE,
+    KEEP_BROWSER_OPEN,
+    LOAD_1688_COOKIES,
+    LOAD_SAVED_COOKIES,
+    NAVIGATION_RETRIES,
+    NAVIGATION_TIMEOUT_MS,
+    PROXY_CHECK_URL,
+    SAVE_PAGE_COOKIES,
+    USER_DATA_DIR,
+    VERIFICATION_CHECK_DELAY_MS,
+    VIEWPORT,
+)
+from scriping_files.raw_cookies import RAW_1688_COOKIES
 
 load_dotenv()
 
@@ -26,6 +50,268 @@ from scriping_files.details_scriping_page import save_image_from_url
 
 
 state_file_path="scraping_state.json"
+PROCESS_RETRIES = 2
+VERIFICATION_RETRIES = 1
+
+
+def pick_browser_agent() -> dict:
+    return random.choice(BROWSER_AGENTS)
+
+
+def is_env_enabled(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def build_proxy_config():
+    proxy_url = os.getenv("PROXY_URL")
+    if not proxy_url:
+        return None
+
+    proxy = {
+        "server": proxy_url,
+        "bypass": "localhost,127.0.0.1",
+    }
+    username = os.getenv("PROXY_USERNAME")
+    password = os.getenv("PROXY_PASSWORD")
+    if username and password:
+        proxy["username"] = username
+        proxy["password"] = password
+    return proxy
+
+
+def destroy_browser_profile():
+    try:
+        shutil.rmtree(USER_DATA_DIR)
+        print(f"Destroyed browser profile: {USER_DATA_DIR}")
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"Could not destroy browser profile at {USER_DATA_DIR}: {e}")
+
+
+async def clear_browser_data(context):
+    try:
+        await context.clear_cookies()
+        print("Cleared browser cookies.")
+    except Exception as e:
+        print(f"Could not clear browser cookies: {e}")
+
+
+async def clear_saved_cookies():
+    try:
+        Path(COOKIE_FILE).unlink(missing_ok=True)
+        print(f"Cleared saved cookies: {COOKIE_FILE}")
+    except Exception as e:
+        print(f"Could not clear saved cookies at {COOKIE_FILE}: {e}")
+
+
+def normalize_cookie(cookie):
+    normalized = {
+        "name": cookie.get("name"),
+        "value": cookie.get("value", ""),
+        "path": cookie.get("path", "/"),
+        "secure": bool(cookie.get("secure", False)),
+        "httpOnly": bool(cookie.get("httpOnly", False)),
+    }
+
+    if cookie.get("domain"):
+        normalized["domain"] = cookie["domain"]
+    if cookie.get("url"):
+        normalized["url"] = cookie["url"]
+
+    expires = cookie.get("expires", cookie.get("expirationDate"))
+    if expires is not None:
+        normalized["expires"] = int(expires)
+
+    same = cookie.get("sameSite")
+    if isinstance(same, str):
+        same = same.lower()
+        if same in ("no_restriction", "none"):
+            normalized["sameSite"] = "None"
+        elif same == "lax":
+            normalized["sameSite"] = "Lax"
+        elif same == "strict":
+            normalized["sameSite"] = "Strict"
+
+    return normalized
+
+
+async def set_1688_cookies(context):
+    if not LOAD_1688_COOKIES:
+        return
+
+    formatted = [normalize_cookie(cookie) for cookie in RAW_1688_COOKIES if cookie.get("name")]
+    if formatted:
+        await context.add_cookies(formatted)
+        print(f"Loaded {len(formatted)} built-in 1688 cookies.")
+
+
+async def load_saved_cookies(context):
+    if not LOAD_SAVED_COOKIES:
+        return
+
+    if not os.path.exists(COOKIE_FILE):
+        print(f"No saved cookie file at {COOKIE_FILE}.")
+        return
+
+    try:
+        cookies = load_json(COOKIE_FILE, default=[])
+        formatted = [normalize_cookie(cookie) for cookie in cookies if cookie.get("name")]
+        if not formatted:
+            print(f"Cookie file {COOKIE_FILE} is empty.")
+            return
+
+        try:
+            await context.add_cookies(formatted)
+            print(f"Loaded {len(formatted)} saved cookies from {COOKIE_FILE}.")
+        except Exception as e:
+            print(f"Bulk add_cookies failed: {e}. Trying individually...")
+            added = 0
+            for cookie in formatted:
+                try:
+                    await context.add_cookies([cookie])
+                    added += 1
+                except Exception as e2:
+                    print(f"Skipping cookie {cookie.get('name')} due to error: {e2}")
+            print(f"Loaded {added} cookies (individual add)")
+    except Exception as e:
+        print(f"Cookie load error: {e}")
+
+
+async def save_page_cookies(context):
+    if not SAVE_PAGE_COOKIES:
+        return
+
+    try:
+        cookies = await context.cookies()
+        Path(COOKIE_FILE).parent.mkdir(parents=True, exist_ok=True)
+        save_json(COOKIE_FILE, cookies)
+        print(f"Saved {len(cookies)} page cookies to {COOKIE_FILE}")
+    except Exception as e:
+        print(f"Error saving cookies: {e}")
+
+
+async def setup_resource_blocking(page):
+    if not BLOCK_HEAVY_RESOURCES:
+        return
+
+    async def route_handler(route, request):
+        if request.resource_type in BLOCKED_RESOURCE_TYPES:
+            await route.abort()
+            return
+        await route.continue_()
+
+    await page.route("**/*", route_handler)
+
+
+async def page_text(page) -> str:
+    try:
+        title = await page.title() or ""
+        url = page.url or ""
+        body = await page.inner_text("body", timeout=5_000) or ""
+        return " ".join([title, url, body]).lower()
+    except Exception:
+        return ""
+
+
+async def is_verification_page(page) -> bool:
+    text = await page_text(page)
+    return any(keyword.lower() in text for keyword in CAPTCHA_KEYWORDS)
+
+
+async def throw_if_verification_page(page):
+    if VERIFICATION_CHECK_DELAY_MS > 0:
+        await asyncio.sleep(VERIFICATION_CHECK_DELAY_MS / 1000)
+    if await is_verification_page(page):
+        await clear_saved_cookies()
+        raise VerificationPageError()
+
+
+async def goto_page(page, url: str, label: str):
+    last_error = None
+    for attempt in range(1, NAVIGATION_RETRIES + 2):
+        try:
+            print(f"Opening {label}: {url} (attempt {attempt})")
+            response = await page.goto(url, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS)
+            await page.wait_for_selector("body", timeout=BODY_WAIT_TIMEOUT_MS)
+            await throw_if_verification_page(page)
+            return response
+        except PlaywrightTimeoutError as e:
+            last_error = e
+            if await page.query_selector("body"):
+                await throw_if_verification_page(page)
+                print("Timed out but body is present. Continuing.")
+                return None
+        except Exception as e:
+            if isinstance(e, VerificationPageError):
+                raise
+            last_error = e
+            if attempt <= NAVIGATION_RETRIES:
+                print(f"Navigation failed: {e}. Retrying in 3 s...")
+                await asyncio.sleep(3)
+
+    raise last_error
+
+
+async def check_proxy(page):
+    if not CHECK_PROXY_FIRST:
+        return
+
+    print("Checking proxy...")
+    await goto_page(page, PROXY_CHECK_URL, "proxy check")
+    location = (await page.inner_text("body", timeout=10_000)).strip().replace("\n", " ")
+    print(f"Proxy location: {location}")
+
+
+class VerificationPageError(Exception):
+    """Raised when 1688 returns a CAPTCHA or login verification page."""
+
+
+async def new_configured_page(context):
+    page = await context.new_page()
+    await page.set_extra_http_headers({"accept-language": "zh-CN,zh;q=0.9,en;q=0.8"})
+    await setup_resource_blocking(page)
+    return page
+
+
+async def process_item_with_retries(context, searching_key, browser, requests):
+    last_error = None
+    verification_retries_used = 0
+
+    for attempt in range(1, PROCESS_RETRIES + 2):
+        page = await new_configured_page(context)
+        try:
+            if attempt == 1:
+                await check_proxy(page)
+            await process_item(page, searching_key, browser, context, requests)
+            return
+        except VerificationPageError as e:
+            last_error = e
+            if verification_retries_used < VERIFICATION_RETRIES:
+                verification_retries_used += 1
+                print(f"Verification page appeared. Closing page and retrying once for {searching_key}.")
+                await clear_browser_data(context)
+                await asyncio.sleep(5 + random.randint(3, 10))
+                continue
+            raise
+        except Exception as e:
+            last_error = e
+            print(f"Process attempt {attempt} failed for {searching_key}: {e}")
+            if attempt <= PROCESS_RETRIES:
+                await asyncio.sleep(5 + random.randint(3, 10))
+            else:
+                raise last_error
+        finally:
+            try:
+                await page.close()
+            except Exception as e:
+                print(f"Error closing retry page: {e}")
+
+    if last_error:
+        raise last_error
 
 
 def load_state(file_path="scraping_state.json"):
@@ -234,10 +520,10 @@ async def extract_products_from_page(page, browser, context, requests):
         for attempt in range(3):
             try:
                 await page.wait_for_selector("a.i18n-card-wrap", timeout=30000)
-                # break
-                continue
+                break
             except Exception as e:
                 print(f"Attempt {attempt + 1} failed to load selector for page {current_page}: {e}")
+                await throw_if_verification_page(page)
                 if attempt < 2:
                     await asyncio.sleep(5 + random.randint(5, 10))
                 else:
@@ -265,7 +551,7 @@ async def extract_products_from_page(page, browser, context, requests):
             # product.update(await parse_categories(page))
             data = jsonable_encoder(product)
             if product:
-                db.products.insert_one(data)
+                await db.products.insert_one(data)
 
         # Add random delay to mimic human behavior
         await asyncio.sleep(random.randint(2, 5))
@@ -284,136 +570,102 @@ async def extract_products_from_page(page, browser, context, requests):
 
     if current_page > max_pages:
         print("Reached max page limit")
-        await context.close()
-        await browser.close()
-
-
 
 async def process_item(page, searching_key, browser, context, requests):
-    url = f"https://s.1688.com/selloffer/offer_search.htm?charset=utf8&keywords={searching_key}"
-    for attempt in range(3):
-        try:
-            await page.goto(url, timeout=60000)
-            break
-        except Exception as e:
-            print(f"Attempt {attempt + 1} failed for {searching_key}: {e}")
-            # await context.close()
-            # await browser.close()
-            if attempt < 2:
-                await asyncio.sleep(10 + random.randint(5, 15))
-            else:
-                raise e
+    searching_key_encoded = urllib.parse.quote(searching_key)
+    url = f"https://s.1688.com/selloffer/offer_search.htm?charset=utf8&keywords={searching_key_encoded}"
     try:
+        await goto_page(page, url, "search results")
         await extract_products_from_page(page, browser, context, requests)
 
     except Exception as e:
         print(f"Error processing item {searching_key}: {e}")
-        await context.close()
-        await browser.close()
+        raise
 
 
 
 
 async def playwright_main(searching_key, requests):
+    browser = None
+    context = None
+    verification_hit = False
+
     async with async_playwright() as p:
         playwright_endpoint = os.getenv("PLAYWRIGHT_ENDPOINT")
-        print(f"PLAYWRIGHT_ENDPOINT: {playwright_endpoint}")
-        if playwright_endpoint:
-            print(f"Connecting to Playwright server at: {playwright_endpoint}")
-            browser = await p.chromium.connect(f'ws://playwright-server:{playwright_endpoint}/')
-        else:
-            print("PLAYWRIGHT_ENDPOINT not set, launching local browser")
-            browser = await p.chromium.launch(headless=False)
-
-        context = await browser.new_context(
-            ignore_https_errors=True,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        )
-
-        # Load cookies if available
         try:
-            # with open("cookie.json", "r", encoding="utf-8") as f:
-            #     cookies = json.load(f)
-            cookie_file = os.path.join(os.path.dirname(__file__), "cookie.json")
-            # if os.path.exists(cookie_file):
-            with open(cookie_file, "r", encoding="utf-8") as f:
-                cookies = json.load(f)
+            browser_agent = pick_browser_agent()
+            proxy = build_proxy_config()
 
-            formatted = []
-            for c in cookies:
+            if playwright_endpoint:
+                print(f"Connecting to Playwright server at: {playwright_endpoint}")
+                browser = await p.chromium.connect(playwright_endpoint, timeout=NAVIGATION_TIMEOUT_MS)
+                context_options = {
+                    "ignore_https_errors": True,
+                    "viewport": VIEWPORT,
+                    "user_agent": browser_agent["userAgent"],
+                }
+                if proxy:
+                    context_options["proxy"] = proxy
+                context = await browser.new_context(**context_options)
+            else:
+                if FRESH_BROWSER_PROFILE:
+                    destroy_browser_profile()
+
+                is_docker = is_env_enabled("RUNNING_IN_DOCKER")
+                headless = is_env_enabled("PLAYWRIGHT_HEADLESS", default=is_docker)
+                launch_args = [
+                    "--ignore-certificate-errors",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                ] if is_docker else ["--ignore-certificate-errors"]
+
+                print(f"Launching browser profile: {USER_DATA_DIR} headless={headless}")
+                context_options = {
+                    "user_data_dir": USER_DATA_DIR,
+                    "headless": headless,
+                    "ignore_https_errors": True,
+                    "viewport": VIEWPORT,
+                    "user_agent": browser_agent["userAgent"],
+                    "args": launch_args,
+                }
+                if proxy:
+                    context_options["proxy"] = proxy
+                context = await p.chromium.launch_persistent_context(**context_options)
+
+            context.set_default_timeout(NAVIGATION_TIMEOUT_MS)
+            context.set_default_navigation_timeout(NAVIGATION_TIMEOUT_MS)
+            print(f'Browser agent: {browser_agent["name"]}')
+
+            await load_saved_cookies(context)
+            await set_1688_cookies(context)
+
+            await process_item_with_retries(context, searching_key, browser, requests)
+            await save_page_cookies(context)
+
+            print(f"\n{'='*50}")
+            print("Collection Complete!")
+            print(f"Output cookies saved to: {COOKIE_FILE}")
+            print(f"{'='*50}")
+        except Exception as e:
+            verification_hit = isinstance(e, VerificationPageError)
+            raise
+        finally:
+            if verification_hit and context:
+                await clear_browser_data(context)
+            if context and (not KEEP_BROWSER_OPEN or verification_hit):
                 try:
-                    cookie = {
-                        "name": c.get("name"),
-                        "value": c.get("value", ""),
-                        "domain": c.get("domain"),
-                        "path": c.get("path", "/"),
-                        "secure": bool(c.get("secure", False)),
-                        "httpOnly": bool(c.get("httpOnly", False))
-                    }
-
-                    # Normalize expiration to integer seconds if provided
-                    if "expirationDate" in c and c.get("expirationDate") is not None:
-                        cookie["expires"] = int(c["expirationDate"])
-
-                    # Normalize sameSite values. Accept common variants and skip None.
-                    same = c.get("sameSite")
-                    if isinstance(same, str):
-                        s = same.lower()
-                        if s in ("no_restriction", "none"):
-                            cookie["sameSite"] = "None"
-                        elif s == "lax":
-                            cookie["sameSite"] = "Lax"
-                        elif s == "strict":
-                            cookie["sameSite"] = "Strict"
-
-                    formatted.append(cookie)
+                    await context.close()
                 except Exception as e:
-                    print(f"Skipping invalid cookie {c.get('name')}: {e}")
-
-            # Try to add cookies in bulk; if that fails, add them one-by-one to isolate bad cookies
-            try:
-                await context.add_cookies(formatted)
-                print(f"Loaded {len(formatted)} cookies")
-            except Exception as e:
-                print(f"Bulk add_cookies failed: {e}. Trying individually...")
-                added = 0
-                for c in formatted:
-                    try:
-                        await context.add_cookies([c])
-                        added += 1
-                    except Exception as e2:
-                        print(f"Skipping cookie {c.get('name')} due to error: {e2}")
-                print(f"Loaded {added} cookies (individual add)")
-
-        except Exception as e:
-            print(f"Cookie load error: {e}")
-
-        page = await context.new_page()
-
-        await process_item(page, searching_key, browser, context, requests)
-
-        # Collect details for each product
-        success_count = 0
-        failed_count = 0
-
-        # Save cookies
-        try:
-            cookies = await context.cookies()
-            with open("cookie.json", "w", encoding="utf-8") as f:
-                json.dump(cookies, f, indent=4, ensure_ascii=False)
-            print(f"\nUpdated cookies saved")
-        except Exception as e:
-            print(f"Error saving cookies: {e}")
-
-        await browser.close()
-
-        print(f"\n{'='*50}")
-        print(f"Collection Complete!")
-        print(f"Successfully collected: {success_count}")
-        print(f"Failed: {failed_count}")
-        print(f"Total: {success_count + failed_count}")
-        print(f"Output saved to: product_details.json")
-        print(f"{'='*50}")
+                    print(f"Error closing context: {e}")
+            if browser and (not KEEP_BROWSER_OPEN or verification_hit):
+                try:
+                    await browser.close()
+                except Exception as e:
+                    print(f"Error closing browser: {e}")
+            if verification_hit:
+                destroy_browser_profile()
 
 
 
